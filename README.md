@@ -42,7 +42,7 @@ They will then install the rest of the dependencies (external requirements: Linu
 pip install -r requirements.txt
 ```
 
-### Uruchamianie skryptu
+### Running the script
 
 Script arguments for learning and model prediction:
 
@@ -102,9 +102,13 @@ or
 python3 main.py fit TransformerJobOffersClassifier -x train_test_data/example/x_train.txt -y train_test_data/example/y_train.txt -h train_test_data/example/classes.tsv -m example_model -t "allegro/herbert-base-cased" -mm "bottom-up" -l 1e-5 -w 0.01 -e 10 -b 8
 ```
 
+## Tutorial on colab
+
++ [installation, training and usage of existing models](https://colab.research.google.com/drive/1a425aagT0lczRxXPWoUlf5aFxUII37nh?usp=sharing)
 
 # Citation
 
+TBA
 
 # Funding
 
