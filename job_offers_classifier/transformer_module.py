@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, List
 from pprint import pprint
 
 import numpy as np
@@ -13,7 +13,7 @@ from torchmetrics import MetricCollection, Recall, Precision, Accuracy, Confusio
 from job_offers_classifier.classification_utils import *
 
 class FullyConnectedOutput(nn.Module):
-    def __init__(self, input_size, output_size, layer_units=(10,), nonlin=nn.ReLU(), hidden_dropout=0, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss()):
+    def __init__(self, input_size, output_size, layer_units=(10,), nonlin=nn.ReLU(), hidden_dropout=0, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss(), labels_groups=None, labels_groups_mapping=None):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -22,6 +22,13 @@ class FullyConnectedOutput(nn.Module):
         self.output_nonlin = output_nonlin
         self.criterion = criterion
         self.hidden_dropout = hidden_dropout
+        self.labels_groups = labels_groups
+        self.labels_groups_mapping = labels_groups_mapping
+
+        if labels_groups_mapping is not None:
+            self.register_buffer('_labels_groups_mapping', torch.tensor(labels_groups_mapping, dtype=torch.long))
+            self.register_buffer('_labels_groups_mask_mapping', self._labels_groups_mapping != -1)
+            self._labels_groups_mapping[~self._labels_groups_mask_mapping] += 1
 
         sequence = []
         units = [self.input_size] + list(self.layer_units) + [self.output_size]
@@ -32,20 +39,41 @@ class FullyConnectedOutput(nn.Module):
         self.sequential = nn.Sequential(*sequence)
 
     def forward(self, batch, labels=None):
-        output = self.sequential(batch)
-
-        if labels is not None:
-            return self.criterion(output, labels), output
+        logits_output = self.sequential(batch)
+            
+        if self.labels_groups is None:
+            output = self.output_nonlin(logits_output)
+            if labels is not None:
+                return self.criterion(logits_output, labels).mean(), output
+            else:
+                return output
+            
         else:
-            return self.output_nonlin(output)
-
+            output = torch.zeros_like(logits_output, dtype=torch.float32)
+            for group in self.labels_groups:
+                output[:, group] = self.output_nonlin(logits_output[:, group])
+        
+            if labels is not None:
+                labels_groups = self._labels_groups_mapping[labels]
+                labels_groups_mask = self._labels_groups_mask_mapping[labels]
+                criterion = 0
+                for g_idx, group in enumerate(self.labels_groups):
+                    assert (labels_groups[:, g_idx] < len(group)).all()
+                    criterion += self.criterion(logits_output[:, group], labels_groups[:, g_idx]) * labels_groups_mask[:, g_idx]
+                criterion = criterion.sum() / labels_groups_mask.sum()
+                return criterion, output
+            else:
+                return output
+            
 
 class TransformerClassifier(LightningModule):
     def __init__(
         self,
         model_name_or_path: str,
-        num_labels: int,
-        output_type: str = "linear",
+        output_size: int,
+        labels_groups: Optional[List] = None,
+        labels_paths: Optional[List] = None,
+        labels_groups_mapping: Optional[np.ndarray] = None,
         learning_rate: float = 1e-5,
         adam_epsilon: float = 1e-8,
         warmup_steps: float = 50,  # from 0-1 for % of training steps, >1 for number of steps
@@ -62,36 +90,32 @@ class TransformerClassifier(LightningModule):
 
         self.save_hyperparameters()
 
+        self.eval_num_labels = output_size if labels_paths is None else len(labels_paths)
+
         if self.hparams.verbose:
-            print(f"Initializing TransformerClassifier with model_name={model_name_or_path}, output_type={output_type}, num_labels={num_labels}, learning_rate={learning_rate}, weight_decay={weight_decay}, warmup_steps={warmup_steps} ...")
+            print(f"""Initializing TransformerClassifier with model_name={model_name_or_path}, 
+  output_size={output_size}, labels_groups={labels_groups is not None}, 
+  learning_rate={learning_rate}, weight_decay={weight_decay}, warmup_steps={warmup_steps}, train_batch_size={train_batch_size}, eval_batch_size={eval_batch_size}, freeze_transformer={freeze_transformer}
+  loss={'hierarchical cross entropy' if labels_groups is not None else 'flat cross entropy'}, hidden_dropout={hidden_dropout}, hierarchy_leaves={self.eval_num_labels} ...""")
 
         self.config = AutoConfig.from_pretrained(
             model_name_or_path,
             finetuning_task=None
         )
         self.transformer = AutoModel.from_pretrained(model_name_or_path, config=self.config)
-        self.output = self._get_output_layer(output_type, num_labels, hidden_dropout)
-
+        self.output = FullyConnectedOutput(self.config.hidden_size, output_size, layer_units=(), hidden_dropout=hidden_dropout, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss(reduction='none'), labels_groups=labels_groups, labels_groups_mapping=labels_groups_mapping) 
+        
         metric_dict = {
-            "acc/r@1": Accuracy(num_classes=num_labels),
-            "macro_acc": Accuracy(num_classes=num_labels, average='macro'),
+            "acc/r@1": Accuracy(task="multiclass", num_classes=self.eval_num_labels),
+            "macro_acc": Accuracy(task="multiclass", num_classes=self.eval_num_labels, average='macro'),
             #"cf_matrix_true": ConfusionMatrix(num_classes=num_labels, normalize='all'),
             #"cf_matrix_all": ConfusionMatrix(num_classes=num_labels, normalize='all')
         }
 
-        for i in range(2, min(num_labels, eval_top_k + 1)):
-            metric_dict[f"r@{i}"] = Recall(num_classes=num_labels, top_k=i)
+        for i in range(2, min(self.eval_num_labels, eval_top_k + 1)):
+            metric_dict[f"r@{i}"] = Recall(task="multiclass", num_classes=self.eval_num_labels, top_k=i)
 
         self.metrics = MetricCollection(metric_dict)
-
-
-    def _get_output_layer(self, output_type, output_size, hidden_dropout):
-        if output_type == "linear":
-            return FullyConnectedOutput(self.config.hidden_size, output_size, layer_units=(), hidden_dropout=hidden_dropout, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss())
-        elif output_type == "nn":
-            return FullyConnectedOutput(self.config.hidden_size, output_size, layer_units=(self.config.hidden_size,), hidden_dropout=hidden_dropout, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss())
-        else:
-            raise ValueError("Unknown output_type for TransformersClassifier")
 
     def forward(self, batch, labels=None):
         transformer_output = self.transformer(batch['input_ids'], attention_mask=batch['attention_mask'])
@@ -100,7 +124,7 @@ class TransformerClassifier(LightningModule):
             return transformer_output
         else:
             return self.output.forward(transformer_output, labels=labels)
-
+        
     def training_step(self, batch, batch_idx):
         if batch['labels'] is not None:  # Windows fix
             batch['labels'] = batch['labels'].type(torch.LongTensor)
@@ -116,6 +140,20 @@ class TransformerClassifier(LightningModule):
             batch['labels'] = batch['labels'].to(self.device)
     
         loss, scores = self.forward(batch, batch['labels'])
+        if self.metrics is None:
+            return loss
+        
+        if self.hparams.labels_paths is not None:
+            new_scores = torch.zeros((scores.shape[0], self.eval_num_labels)).to(self.device)
+            for i, path in enumerate(self.hparams.labels_paths):
+                path_score = scores[:,path]
+                new_scores[:,i] = path_score.prod(axis=1)
+            scores = new_scores
+            assert scores.shape == (scores.shape[0], self.eval_num_labels)
+            true_loss = F.cross_entropy(scores, batch['labels'])
+            self.log(f'{eval_name}_true_loss', true_loss, on_epoch=True, logger=True)
+
+        #print(scores.argmax(dim=1), batch['labels'])
         self.log(f'{eval_name}_performance', self.metrics(scores, batch['labels']), on_epoch=True, logger=True)
         self.log(f'{eval_name}_loss', loss, on_epoch=True, logger=True)
         return loss
@@ -145,7 +183,8 @@ class TransformerClassifier(LightningModule):
         train_loader = self.trainer.datamodule.train_dataloader()
 
         # Calculate total steps
-        tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
+        #tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
+        tb_size = self.hparams.train_batch_size * max(1, self.trainer.num_devices)
         ab_size = self.trainer.accumulate_grad_batches
         dl_size = len(train_loader.dataset) * self.trainer.max_epochs
         self.total_steps = dl_size // tb_size // ab_size

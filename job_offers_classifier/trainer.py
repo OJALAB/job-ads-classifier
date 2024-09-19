@@ -42,12 +42,16 @@ class TrainerWrapper:
             callbacks.append(EarlyStopping(**self.early_stopping_args))
 
         self.trainer_args = {
-            "gpus": 1,
-            "amp_backend": "native",
+            #"gpus": 1,
+            "devices": 1,
+            #"amp_backend": "native", # Deprecated
+            "accelerator": "auto",
+            #"auto_select_gpus": True, # Deprecated
             "precision": 32,
             "callbacks": callbacks,
-            "weights_summary": "top" if verbose else None,
+            "enable_model_summary": verbose,
             "enable_progress_bar": verbose,
+            "num_sanity_val_steps": 0,
         }
         if trainer_args:
             self.trainer_args.update(trainer_args)

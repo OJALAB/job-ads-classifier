@@ -9,7 +9,7 @@ from stempel import StempelStemmer
 from stempel.streams import DataInputStream
 from stop_words import get_stop_words
 import string
-from napkinxc.models import HSM, PLT
+from napkinxc.models import HSM, OVR
 import gzip
 
 from job_offers_classifier.load_save import save_obj, load_obj
@@ -36,9 +36,11 @@ class BaseHierarchicalJobOffersClassifier:
     def __init__(self,
                  model_dir=None,
                  hierarchy=None,
+                 modeling_mode='bottom-up',
                  verbose=True):
         self.model_dir = model_dir
         self.hierarchy = hierarchy
+        self.modeling_mode = modeling_mode
         self.base_model = None
         self.verbose = verbose
 
@@ -57,16 +59,110 @@ class BaseHierarchicalJobOffersClassifier:
     def _process_y(self, y):
         return [self.last_level_labels_map[y_i] for y_i in y]
 
+    # def _bottom_up_process_y(self, y):
+    #     return [self.last_level_labels_map[y_i] for y_i in y]
+    
+    # def _top_down_process_y(self, y):
+    #     y = []
+    #     for y_i in y:
+    #         y.append([self.top_down_labels_map[y_p] for y_p in self.hierarchy[y_i]['parents'] + [y_i]])
+    #     return y
+
     def _get_level_labels(self, level):
         level_labels = sorted([node['label'] for node in self.hierarchy.values() if node['level'] == level])
         return level_labels
 
     def _process_hierarchy(self):
-        self.last_level = max([node['level'] for node in self.hierarchy.values()])
-        self.last_level_labels = self._get_level_labels(self.last_level)
-        self.last_level_labels_map = {label: i for i, label in enumerate(self.last_level_labels)}
-        self.last_level_indices_map = {i: label for i, label in enumerate(self.last_level_labels)}
+        # Basic per level information
+        self.levels = sorted({node['level'] for node in self.hierarchy.values()})
+        self.levels_labels = {level: self._get_level_labels(level) for level in self.levels}
+        self.levels_labels_map = {level: {label: i for i, label in enumerate(sorted(labels))} for level, labels in self.levels_labels.items()}
+        self.levels_indices_map = {level: {i: label for label, i in labels_map.items()} for level, labels_map in self.levels_labels_map.items()}
+        self.level_labels_count = {level: len(labels) for level, labels in self.levels_labels.items()}
 
+        # Check if all mappings are correct
+        for level in self.levels:
+            assert len(self.levels_labels[level]) == self.level_labels_count[level]
+            assert max(self.levels_labels_map[level].values()) == len(self.levels_labels_map[level]) - 1
+
+        # Last level information
+        self.last_level = max(self.levels)
+        self.last_level_labels = self.levels_labels[self.last_level]
+        self.last_level_labels_map = self.levels_labels_map[self.last_level]
+        self.last_level_indices_map = self.levels_indices_map[self.last_level]
+        self.last_level_labels_count = self.level_labels_count[self.last_level]
+        
+        # Direct children map
+        direct_children_map = {}
+        for node in self.hierarchy.values():
+            parent = node['parents'][-1] if len(node['parents']) else '-1'
+            if parent not in direct_children_map:
+                direct_children_map[parent] = []
+            direct_children_map[parent].append(node['label'])
+
+        assert len(direct_children_map) == sum([v for k, v in self.level_labels_count.items() if k != self.last_level]) + 1
+
+        # Siblings map
+        siblings_map = {}
+        for v in direct_children_map.values():
+            for c in v:
+                siblings_map[c] = v
+
+        # Paths map for last level labels
+        self.paths_map = [[] for _ in range(self.last_level_labels_count)]
+        for label in self.last_level_labels:
+            idx = self.last_level_labels_map[label]
+            self.paths_map[idx] = self.hierarchy[label]['parents'] + [label]
+
+        assert len(self.paths_map) == self.last_level_labels_count
+
+        # For top-down modeling
+        self.top_down_labels_map = {}
+        prev_level_labels = 0
+        for level in self.levels:
+            labels_map = self.levels_labels_map[level]
+            for label, i in labels_map.items():
+                self.top_down_labels_map[label] = prev_level_labels + i
+            prev_level_labels += self.level_labels_count[level]
+
+        assert len(self.top_down_labels_map) == sum([v for v in self.level_labels_count.values()])
+        assert max(self.top_down_labels_map.values()) == len(self.top_down_labels_map) - 1
+
+        self.top_down_indices_map = {i: label for label, i in self.top_down_labels_map.items()}
+        
+        self.top_down_children_map = {}
+        for parent, children in direct_children_map.items():
+            self.top_down_children_map[parent] = [self.top_down_labels_map[c] for c in children]
+
+        assert len(self.top_down_children_map) == len(direct_children_map)
+
+        self.top_down_labels_groups = list(self.top_down_children_map.values())
+        self.top_down_labels_groups_map = {}
+        for i, group in enumerate(self.top_down_labels_groups):
+            for label in group:
+                self.top_down_labels_groups_map[label] = i
+
+        self.top_down_sibling_map = {}
+        for label, i in self.top_down_labels_map.items():
+            self.top_down_sibling_map[i] = [self.top_down_labels_map[s] for s in siblings_map[label]]
+
+        self.top_down_labels_paths = [
+            [self.top_down_labels_map[p] for p in self.paths_map[i]] for i in range(self.last_level_labels_count)
+        ]
+
+        assert len(self.top_down_labels_paths) == self.last_level_labels_count
+
+        self.top_down_labels_groups_mapping = np.full(
+            (self.last_level_labels_count, len(self.top_down_labels_groups)), -1, dtype=np.float32
+        )
+
+        for label_idx, path in enumerate(self.top_down_labels_paths):
+            for p_label in path:
+                g_idx = self.top_down_labels_groups_map[p_label]
+                group = self.top_down_labels_groups[g_idx]
+                self.top_down_labels_groups_mapping[label_idx, g_idx] = group.index(p_label)
+
+ 
     def _init_load(self, model_dir):
         self.model_dir = model_dir
         self.hierarchy_path = os.path.join(self.model_dir, "hierarchy.bin")
@@ -83,7 +179,7 @@ class BaseHierarchicalJobOffersClassifier:
         if output_level > self.last_level:
             raise RuntimeError(f"Provided level {output_level} is larger than maximum hierachy level {self.last_level}")
 
-        level_labels = {node['label'] for node in self.hierarchy.values() if node['level'] == output_level}
+        level_labels = self.levels_labels[output_level]
         pred_mapping_inv = {v: k for k, v in pred_mapping.items()}
 
         labels_level_parent_mapping = {}
@@ -99,14 +195,16 @@ class BaseHierarchicalJobOffersClassifier:
         new_y = [labels_level_parent_mapping[y_i] for y_i in y]
         return new_y
 
-    def predict_for_level(self, pred, pred_mapping, output_level, format='array', top_k=None):
+    def predict_for_level_bottom_up(self, pred, pred_mapping, output_level):
         if self.hierarchy is None:
             raise RuntimeError("Cannot process prediction when hierarchy = None")
 
-        level_labels = [node['label'] for node in self.hierarchy.values() if node['level'] == output_level]
-        level_mapping = {label: i for i, label in enumerate(sorted(level_labels))}
-        level_mapping_inv = {i: label for i, label in enumerate(sorted(level_labels))}
+        level_labels = self.levels_labels[output_level]
+        level_mapping = self.levels_labels_map[output_level]
+        level_mapping_inv = self.levels_indices_map[output_level]
 
+        print("Predicting bottom-up ...")
+        # Bottom-up accumulation of probabilities
         level_pred = np.zeros((pred.shape[0], len(level_labels)), dtype=np.float32)
         for i in range(pred.shape[1]):
             label = pred_mapping[i]
@@ -122,22 +220,44 @@ class BaseHierarchicalJobOffersClassifier:
 
         return level_pred, level_mapping_inv
 
-    def _get_output(self, last_level_pred, output_level="last", format="array", top_k=None):
-        if output_level != "last" and output_level != self.last_level:
-            level_pred, level_map = self.predict_for_level(last_level_pred, self.last_level_indices_map, output_level)
-        else:
-            level_pred = last_level_pred
-            level_map = self.last_level_indices_map
+    
+    def predict_for_level_top_down(self, factorized_pred, output_level):
+        level_pred = np.ones((factorized_pred.shape[0], self.level_labels_count[output_level]), dtype=np.float32)
+        level_mapping = self.levels_labels_map[output_level]
+        level_mapping_inv = self.levels_indices_map[output_level]
 
+        print("Predicting for top-down ...")
+        # Top-down accumulation of probabilities
+        for label in self.levels_labels[output_level]:
+            for parent in self.hierarchy[label]['parents'] + [label]:
+                level_pred[:, level_mapping[label]] *= factorized_pred[:, self.top_down_labels_map[parent]]
+
+        return level_pred, level_mapping_inv
+
+
+    def _get_output(self, pred, output_level="last", format="array", top_k=None, pred_type="flat"):
+        if output_level == "last":
+            output_level = self.last_level
+    
+        if pred_type == "hierarchical":
+            level_pred, level_map = self.predict_for_level_top_down(pred, output_level)
+        else:
+            if output_level != self.last_level:
+                level_pred, level_map = self.predict_for_level_bottom_up(pred, self.last_level_indices_map, output_level)
+            else:
+                level_pred = pred
+                level_map = self.last_level_indices_map
+
+        # Get top_k labels
         if top_k is not None:
             if not isinstance(top_k, int) or top_k < 1:
                 raise ValueError(f"top_k needs to be int > 0, is {top_k}")
 
             top_k_labels = np.flip(np.argsort(level_pred, axis=1), axis=1)[:, :top_k]
-            # top_k_prob = np.flip(np.sort(level_pred, axis=1), axis=1)[:,:top_k]
             top_k_prob = np.take_along_axis(level_pred, top_k_labels, axis=1)
             level_pred = (top_k_labels, top_k_prob)
 
+        # Apply requested format
         if format == "array":
             return level_pred, level_map
         elif format == "dataframe":
@@ -159,6 +279,7 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
     def __init__(self,
                  model_dir=None,
                  hierarchy=None,
+                 modeling_mode='top-down',
                  eps=0.001,
                  c=10,
                  ensemble=1,
@@ -166,13 +287,14 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                  use_provided_hierarchy=True,
                  tfidf_vectorizer_min_df=2,
                  verbose=True):
-        super().__init__(model_dir=model_dir, hierarchy=hierarchy, verbose=verbose)
+        super().__init__(model_dir=model_dir, hierarchy=hierarchy, modeling_mode=modeling_mode, verbose=verbose)
 
         self.c = c
         self.eps = eps
         self.ensemble = ensemble
         self.threads = threads
         self.use_provided_hierarchy = use_provided_hierarchy
+        self.modeling_mode = modeling_mode
 
         self.tfidf_vectorizer_path = None
         self.tfidf_vectorizer_min_df = tfidf_vectorizer_min_df
@@ -301,10 +423,13 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
         if self.ensemble > 1:
             napkinxc_args['ensemble'] = self.ensemble
-        if self.use_provided_hierarchy:
+        if self.modeling_mode == 'top-down' and self.use_provided_hierarchy:
             napkinxc_args['tree_structure'] = self._get_napkixc_hierarchy()
 
-        self.base_model = HSM(self.model_dir, **napkinxc_args)
+        if self.modeling_mode == 'top-down':
+            self.base_model = HSM(self.model_dir, **napkinxc_args)
+        elif self.modeling_mode == 'bottom-up':
+            self.base_model = OVR(self.model_dir, **napkinxc_args)
 
         if self.verbose:
             print("Fitting model ...")
@@ -320,7 +445,10 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.tfidf_vectorizer = load_obj(self.tfidf_vectorizer_path)
         self.stemmer = load_obj(self.stemmer_path)
 
-        self.base_model = HSM(self.model_dir)
+        if self.modeling_mode == 'top-down':
+            self.base_model = HSM(self.model_dir)
+        elif self.modeling_mode == 'bottom-up' or os.path.exists(os.path.join(self.model_dir, "tree.bin")):
+            self.base_model = OVR(self.model_dir)
         self.base_model.load()
 
     def predict(self, X_text=None, X_matrix=None, output_level="last", format='array', top_k=None):
@@ -347,7 +475,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                  ckpt_path=None,
                  transformer_model="allegro/herbert-base-cased",
                  transformer_ckpt_path="",
-                 training_mode='flat',
+                 modeling_mode='bottom-up',
                  adam_epsilon=1e-8,
                  learning_rate=1e-5,
                  weight_decay=0.01,
@@ -357,18 +485,17 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                  early_stopping=False,
                  early_stopping_delta=0.001,
                  early_stopping_patience=1,
-                 gpus=1,
-                 accelerator="dp",
+                 devices=1,
+                 accelerator="auto",
                  num_nodes=1,
                  threads=-1,
                  precision=16,
                  verbose=True):
-        super().__init__(model_dir=model_dir, hierarchy=hierarchy, verbose=verbose)
+        super().__init__(model_dir=model_dir, hierarchy=hierarchy, modeling_mode = modeling_mode, verbose=verbose)
 
         self.ckpt_path = ckpt_path
         self.transformer_model = transformer_model
         self.transformer_ckpt_path = transformer_ckpt_path
-        self.training_mode = training_mode
         self.adam_epsilon = adam_epsilon
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
@@ -378,29 +505,39 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.early_stopping = early_stopping
         self.early_stopping_delta = early_stopping_delta
         self.early_stopping_patience = early_stopping_patience
-        self.gpus = gpus
+        self.devices = devices
         self.accelerator = accelerator
         self.num_nodes = num_nodes
         self.threads = threads
         self.precision = precision
         self.fit_single = False
 
-    def _create_text_dataset(self, y, X):
-        return TextDataset(X, labels=y,
-                           num_labels=len(self.last_level_labels),
-                           lazy_encode=True, labels_dense_vec=False)
+        self.num_devices = self.devices
+        if isinstance(self.devices, (list, tuple)):
+            self.num_devices = len(self.devices)
+
+
+    def _create_text_dataset(self, y, X, labels_groups=None):
+        if isinstance(y[0], list):
+            return TextDataset(X, labels=y,
+                    num_labels=self.last_level_labels_count,
+                    lazy_encode=True, labels_dense_vec=False, labels_groups=labels_groups)
+        else:
+            return TextDataset(X, labels=y,
+                            num_labels=self.last_level_labels_count,
+                            lazy_encode=True, labels_dense_vec=False)
 
     def _setup_data_module(self, dataset):
         text_dataset = {}
 
         if 'train' in dataset:
-            text_dataset['train'] = self._create_text_dataset(*dataset['train'])
+            text_dataset['train'] = self._create_text_dataset(*dataset['train'], labels_groups=dataset.get('labels_groups', None))
 
         if 'val' in dataset:
-            text_dataset['val'] = self._create_text_dataset(*dataset['val'])
+            text_dataset['val'] = self._create_text_dataset(*dataset['val'], labels_groups=dataset.get('labels_groups', None))
 
         if 'test' in dataset:
-            text_dataset['test'] = self._create_text_dataset(*dataset['test'])
+            text_dataset['test'] = self._create_text_dataset(*dataset['test'], labels_groups=dataset.get('labels_groups', None))
 
         data_module = TransformerDataModule(
             text_dataset,
@@ -408,23 +545,28 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
             train_batch_size=self.batch_size,
             eval_batch_size=self.batch_size,
             max_seq_length=self.max_sequence_length,
-            num_workers=self.threads if self.gpus < 2 else 0
+            num_workers=self.threads if self.num_devices < 2 else 0,
         )
         data_module.setup()
         return data_module
 
-    def _fit(self, y, X, y_val=None, X_val=None, num_labels=1):
+    def _fit(self, y, X, y_val=None, X_val=None, output_size=None, labels_groups=None, labels_paths=None, labels_groups_mapping=None):
+        if output_size is None:
+            raise RuntimeError("Output size is not provided, this should not happen")
+
         dataset = {"train": (y, X)}
         if y_val is not None and X_val is not None:
             dataset["val"] = (y_val, X_val)
+        # if labels_groups is not None:
+        #     dataset['labels_groups'] = labels_groups
 
         data_module = self._setup_data_module(dataset)
         trainer = TrainerWrapper(ckpt_dir=os.path.join(self.model_dir, "ckpts"),
                                  trainer_args={"max_epochs": self.max_epochs,
-                                               "gpus": self.gpus,
-                                               "strategy": self.accelerator if (self.gpus > 1 or self.num_nodes > 1) else None,
+                                               "devices": self.devices,
                                                "num_nodes": self.num_nodes,
-                                               "precision": self.precision},
+                                               "precision": self.precision,
+                                               "accelerator": self.accelerator},
                                  early_stopping=self.early_stopping,
                                  early_stopping_args={"patience": self.early_stopping_patience,
                                                       "min_delta": self.early_stopping_delta},
@@ -432,15 +574,18 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
         self.base_model = TransformerClassifier(
             model_name_or_path=self.transformer_ckpt_path
-            if self.transformer_ckpt_path is not None and len(self.transformer_ckpt_path) > 0
-            else self.transformer_model,
-            num_labels=num_labels,
+                if self.transformer_ckpt_path is not None and len(self.transformer_ckpt_path) > 0
+                else self.transformer_model,
+            output_size=output_size,
             adam_epsilon=self.adam_epsilon,
             learning_rate=self.learning_rate,
             weight_decay=self.weight_decay,
             train_batch_size=self.batch_size,
             eval_batch_size=self.batch_size,
-            verbose=self.verbose
+            verbose=self.verbose, 
+            labels_groups=labels_groups, 
+            labels_paths=labels_paths, 
+            labels_groups_mapping=labels_groups_mapping
         )
 
         trainer.fit(self.base_model, datamodule=data_module, ckpt_path=self.ckpt_path)
@@ -449,21 +594,23 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
     def fit(self, y, X, y_val=None, X_val=None):
         self._init_fit()
 
-        output_type = 'linear'
         save_obj(os.path.join(self.model_dir, "transformer_arch.bin"), {
             'transformer_model': self.transformer_model,
             'transformer_ckpt': self.transformer_ckpt_path,
-            'output_type': output_type
         })
 
-        if self.training_mode == "flat":
+        if self.modeling_mode in ["bottom-up", "bottom-up-flat", "top-down"]:
             y = self._process_y(y)
             if y_val is not None:
                 y_val = self._process_y(y_val)
 
-            self._fit(y, X, y_val=y_val, X_val=X_val, num_labels=len(self.last_level_labels))
+            labels_groups = self.top_down_labels_groups if self.modeling_mode == 'top-down' else None
+            labels_paths = self.top_down_labels_paths if self.modeling_mode == 'top-down' else None
+            labels_groups_mapping = self.top_down_labels_groups_mapping if self.modeling_mode == 'top-down' else None
 
-        elif self.training_mode == "cascade":
+            self._fit(y, X, y_val=y_val, X_val=X_val, output_size=self._get_output_size(), labels_groups=labels_groups, labels_paths=labels_paths, labels_groups_mapping=labels_groups_mapping)
+
+        elif self.modeling_mode == "bottom-up-cascade":
             for l in range(self.last_level + 1):
                 level_labels = self._get_level_labels(l)
                 level_labels_map = {i: label for i, label in enumerate(level_labels)}
@@ -472,11 +619,14 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                 if y_val is not None:
                     level_y_val = self.remap_labels_to_level(y_val, level_labels_map, l)
 
-                self._fit(level_y, X, y_val=level_y_val, X_val=X_val, num_labels=len(level_labels))
+                self._fit(level_y, X, y_val=level_y_val, X_val=X_val, output_size=len(level_labels))
                 self.transformer_ckpt_path = self.model_dir
 
         else:
-            raise ValueError(f"Unknown training_mode={self.training_mode}")
+            raise ValueError(f"Unknown training_mode={self.modeling_mode}")
+        
+    def _get_output_size(self):
+        return len(self.top_down_labels_map) if self.modeling_mode == "top-down" else self.last_level_labels_count
 
     def load(self, model_dir):
         self._init_load(model_dir)
@@ -484,15 +634,20 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         transformer_arch = load_obj(os.path.join(self.model_dir, "transformer_arch.bin"))
         self.transformer_model = transformer_arch['transformer_model']
         self.transformer_ckpt_path = transformer_arch['transformer_ckpt']
-        output_type = transformer_arch['output_type']
+
+        labels_groups = self.top_down_labels_groups if self.modeling_mode == 'top-down' else None,
+        labels_paths = self.top_down_labels_paths if self.modeling_mode == 'top-down' else None,
+        labels_groups_mapping = self.top_down_labels_groups_mapping if self.modeling_mode == 'top-down' else None
 
         self.base_model = TransformerClassifier(
             model_name_or_path=self.transformer_ckpt_path if self.transformer_ckpt_path is not None and len(self.transformer_ckpt_path) > 0 else self.transformer_model,
-            num_labels=len(self.last_level_labels),
-            output_type=output_type,
+            output_size=self._get_output_size(self),
             train_batch_size=self.batch_size,
             eval_batch_size=self.batch_size,
-            verbose=self.verbose
+            verbose=self.verbose,
+            labels_groups=labels_groups, 
+            labels_paths=labels_paths, 
+            labels_groups_mapping=labels_groups_mapping
         )
 
         self.ckpt_path = os.path.join(self.model_dir, "transformer_classifier.ckpt")
@@ -504,13 +659,12 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         dataset = {"test": (None, X)}
         data_module = self._setup_data_module(dataset)
 
-        trainer = TrainerWrapper(ckpt_dir=self.ckpt_path, trainer_args={"gpus": self.gpus, "precision": self.precision},)
+        trainer = TrainerWrapper(ckpt_dir=self.ckpt_path, trainer_args={"devices": self.devices, "precision": self.precision},)
         pred = trainer.predict(self.base_model, dataloaders=data_module.test_dataloader(), ckpt_path=self.ckpt_path)
         return np.array(torch.vstack(pred))
 
     def predict(self, X, output_level="last", format='array', top_k=None):
-        last_level_pred = self._predict(X)
-        return self._get_output(last_level_pred, output_level=output_level, format=format, top_k=top_k)
+        return self._get_output(self._predict(X), output_level=output_level, format=format, top_k=top_k, pred_type="hierarchical" if self.modeling_mode == "top-down" else "flat")
 
     def predict_hidden(self, X):
         if self.base_model is None:

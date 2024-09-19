@@ -21,7 +21,7 @@ from job_offers_classifier.load_save import *
 # Transformer model settings
 @click.option("-t", "--transformer_model", type=str, required=True, default="allegro/herbert-base-cased")
 @click.option("-tc", "--transformer_ckpt_path", type=str, required=True, default="")
-@click.option("-tm", "--training_mode", type=str, required=True, default="cascade")
+@click.option("-mm", "--modeling_mode", type=str, required=True, default="bottom-up")
 # Training parameters
 @click.option("-l", "--learning_rate", type=float, required=True, default=1e-5)
 @click.option("-w", "--weight_decay", type=float, required=True, default=0.01)
@@ -34,9 +34,9 @@ from job_offers_classifier.load_save import *
 @click.option("--early_stopping_patience", type=int, required=True, default=1)
 # Hardware
 @click.option("-T", "--threads", type=int, required=True, default=8)
-@click.option("-G", "--gpus", type=int, required=True, default=1)
+@click.option("-D", "--devices", type=int, required=True, default=1)
 @click.option("-P", "--precision", type=int, required=True, default=16)
-@click.option("-A", "--accelerator", type=str, required=True, default="ddp")
+@click.option("-A", "--accelerator", type=str, required=True, default="auto")
 # Linear model
 @click.option("--eps", type=float, required=True, default=0.001)
 @click.option("-c", "--cost", type=float, required=True, default=10)
@@ -56,7 +56,7 @@ def main(command: str,
 
          transformer_model: str,
          transformer_ckpt_path: str,
-         training_mode: str,
+         modeling_mode: str,
 
          learning_rate: float,
          weight_decay: float,
@@ -69,7 +69,7 @@ def main(command: str,
          early_stopping_patience: int,
 
          threads: int,
-         gpus: int,
+         devices: int,
          precision: int,
          accelerator: str,
 
@@ -86,7 +86,7 @@ def main(command: str,
 
     if threads <= 0:
         threads = min(os.cpu_count() - threads, 1)
-    gpus = min(gpus, torch.cuda.device_count())
+    devices = min(devices, torch.cuda.device_count())
     print(f"Starting command {command} with {classifier}, time: {datetime.now()}")
 
     if command == 'fit':
@@ -116,7 +116,7 @@ def main(command: str,
                 hierarchy=hierarchy,  # hierarchia klas w formacie słownika <etykieta>: {'label': <etykieta>, 'level': <numer poziomu hierarchii, 'name': <nazwa etykiety> (opcjonalne), 'parents': <lista zawierająca wszystkich rodziców etykiety>})
                 transformer_model=transformer_model,  # podstawowy model transformera (encodera) do użycia, może być to dowolny model pochodzący z repo https://huggingface.co
                 transformer_ckpt_path=transformer_ckpt_path,  # ścieżka do modelu transformera, od której rozpocząć uczenie, może służyć do tego, by szybciej trenować nowy model na podstawie już wytrenowanego, np. kiedy zmieni się hierarchia ogłoszeń
-                training_mode=training_mode,  # `cascade_loss` albo `flat_loss`, pierwszy uczy poziom po poziomie w sumie przez max_epochs (max_epochs / liczba poziomów) per poziom, drugi uczy model na ostatnim poziomie hierarchi
+                modeling_mode=modeling_mode,  # `cascade_loss` albo `flat_loss`, pierwszy uczy poziom po poziomie w sumie przez max_epochs (max_epochs / liczba poziomów) per poziom, drugi uczy model na ostatnim poziomie hierarchi
                 learning_rate=learning_rate,  # początkowy rozmiar kroku uczenia
                 weight_decay=weight_decay,  # stała regularyzacyjna, im większa, tym większa regularyzacja
                 max_epochs=max_epochs,  # maksymalna ilość epok uczenia
@@ -125,7 +125,7 @@ def main(command: str,
                 early_stopping=early_stopping,  # zastosuj wcześniejsze kończenie treningu, jeśli nie zostanie osiągnięta wystarczająca poprawa na stracie
                 early_stopping_delta=early_stopping_delta,  # próg tolerancja na warunek stopu
                 early_stopping_patience=early_stopping_patience,  # zakończ po tej ilości epok bez poprawy o próg tolerancji
-                gpus=gpus,  # id akceleratora gpu, który użyć podczas treningu, przy większej ilość gpu, można podać listę, obliczenia powinny się rozproszyć, ale w tym wypadku tego nie testowałem
+                devices=devices,  # id akceleratora gpu, który użyć podczas treningu, przy większej ilość gpu, można podać listę, obliczenia powinny się rozproszyć, ale w tym wypadku tego nie testowałem
                 accelerator=accelerator,
                 threads=threads,  # ilość wątków procesora wykorzystana przy uczeniu i predykcji
                 precision=precision,  # precyzja obliczeń na GPU, niższa precyzja (16 bitów) pozwala na szybsze uczenie większego modelu
@@ -146,7 +146,7 @@ def main(command: str,
         elif classifier == "TransformerJobOffersClassifier":
             model = TransformerJobOffersClassifier(
                 batch_size=batch_size,
-                gpus=gpus,
+                devices=devices,
                 threads=threads,
                 precision=precision,
                 accelerator=accelerator,

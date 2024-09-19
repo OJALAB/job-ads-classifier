@@ -1,7 +1,7 @@
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer
-
+from typing import Dict, Optional
 
 class TransformerDataModule(LightningDataModule):
     def __init__(
