@@ -4,26 +4,30 @@ def get_discrete_dist(labels, size):
     for l, c in zip(unique, counts):
         dist[l] = c / len(labels)
     return dist
-    
+
+# Metoda licząca wybrane metryki dla danej predykcji
 def evaluate(pred, target):
     num_labels = pred.shape[1]
     metric_dict = {
-        "acc/recall@1": Accuracy(num_classes=num_labels),
-        "macro_acc": Accuracy(num_classes=num_labels, average='macro'),
+        "acc/recall@1": Accuracy(task="multiclass", num_classes=num_labels),
+        "macro_acc": Accuracy(task="multiclass", num_classes=num_labels, average='macro'),
         #"cf_matrix_true": ConfusionMatrix(num_classes=num_labels, normalize='all'),
         #"cf_matrix_all": ConfusionMatrix(num_classes=num_labels, normalize='all')
     }
 
     for i in range(2, min(num_labels, 11)):
-        metric_dict[f"recall@{i}"] = Recall(num_classes=num_labels, top_k=i)
+        metric_dict[f"recall@{i}"] = Recall(task="multiclass", num_classes=num_labels, top_k=i)
 
     metrics = MetricCollection(metric_dict)
-    return metrics(torch.tensor(pred), torch.tensor(target))
+    results = metrics(torch.tensor(pred), torch.tensor(target))
+    results['log-loss'] = torch.nn.functional.cross_entropy(torch.tensor(pred), torch.tensor(target), reduction='mean')
+    return results
 
+# Metoda biorąca model hierarchiczny i dokonująca predykcji dla każdego poziomu i następnie porządkująca je w DataFrame
 def evaluate_levels(model, y, pred, pred_map, levels, plot_dist=None):
     results = {}
     for level in levels:
-        level_pred, level_map = model.predict_for_level(pred, pred_map, output_level=level)
+        level_pred, level_map = model.predict_for_level_bottom_up(pred, pred_map, output_level=level)
         level_y = model.remap_labels_to_level(y, level_map, output_level=level)
 
         level_label = f"level {level}"
