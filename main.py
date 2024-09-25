@@ -43,7 +43,7 @@ from job_offers_classifier.load_save import *
 # Linear model
 @click.option("--eps", type=float, required=True, default=0.001)
 @click.option("-c", "--cost", type=float, required=True, default=10)
-@click.option("-e", "--ensemble", type=int, required=True, default=1)
+@click.option("-E", "--ensemble", type=int, required=True, default=1) ## the same as for Training (-e)
 @click.option("--use_provided_hierarchy", type=int, required=True, default=1)
 @click.option("--tfidf_vectorizer_min_df", type=int, required=True, default=2)
 # Prediction
@@ -120,6 +120,8 @@ def main(command: str,
                 tfidf_vectorizer_min_df=tfidf_vectorizer_min_df,  # minimalna ilość wystąpień token w zbiorze treningowym
                 verbose=verbose
             )
+            model.fit(y, X)
+
         elif classifier == "TransformerJobOffersClassifier":
             model = TransformerJobOffersClassifier(
                 model_dir=model_dir,  # folder gdzie wszystkie elementy modelu będą zapisywane
@@ -141,14 +143,15 @@ def main(command: str,
                 precision=precision,  # precyzja obliczeń na GPU, niższa precyzja (16 bitów) pozwala na szybsze uczenie większego modelu
                 verbose=verbose
             )
+            if x_data_val != '' and y_data_val != '':
+                model.fit(y, X, y_val=y_val, X_val=X_val)
+            else: 
+                model.fit(y, X)
+
         else:
             raise ValueError(f'Unknown classifier type {classifier}')
 
-        if x_data_val != '' and y_data_val != '':
-            model.fit(y, X, y_val=y_val, X_val=X_val)
-        else: 
-            model.fit(y, X)
-
+        
     elif command == 'predict':
         X = load_texts(x_data)
 
