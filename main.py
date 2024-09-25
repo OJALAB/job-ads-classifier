@@ -22,11 +22,13 @@ from job_offers_classifier.load_save import *
 @click.option("-t", "--transformer_model", type=str, required=True, default="allegro/herbert-base-cased")
 @click.option("-tc", "--transformer_ckpt_path", type=str, required=True, default="")
 @click.option("-mm", "--modeling_mode", type=str, required=True, default="bottom-up")
+@click.option("-x_val", "--x_data_val", type=str, required=False, default="")
+@click.option("-y_val", "--y_data_val", type=str, required=False, default="")
 # Training parameters
 @click.option("-l", "--learning_rate", type=float, required=True, default=1e-5)
 @click.option("-w", "--weight_decay", type=float, required=True, default=0.01)
-@click.option("-e", "--max_epochs", type=int, required=True, default=20)
-@click.option("-b", "--batch_size", type=int, required=True, default=64)
+@click.option("-e", "--max_epochs", type=int, required=True, default=10)
+@click.option("-b", "--batch_size", type=int, required=True, default=32)
 @click.option("-s", "--max_sequence_length", type=int, required=True, default=128)
 # Early stopping
 @click.option("--early_stopping", type=bool, required=True, default=False)
@@ -57,6 +59,8 @@ def main(command: str,
          transformer_model: str,
          transformer_ckpt_path: str,
          modeling_mode: str,
+         x_data_val: str,
+         y_data_val: str,
 
          learning_rate: float,
          weight_decay: float,
@@ -96,6 +100,10 @@ def main(command: str,
 
         X = load_texts(x_data)
         y = load_texts(y_data)
+        
+        if x_data_val != '' and y_data_val != '':
+            X_val = load_texts(x_data_val)
+            y_val = load_texts(y_data_val)
 
         # Create model
         if classifier == "LinearJobOffersClassifier":
@@ -134,7 +142,10 @@ def main(command: str,
         else:
             raise ValueError(f'Unknown classifier type {classifier}')
 
-        model.fit(y, X)
+        if x_data_val != '' and y_data_val != '':
+            model.fit(y, X, y_val=y_val, X_val=X_val)
+        else 
+            model.fit(y, X)
 
     elif command == 'predict':
         X = load_texts(x_data)
