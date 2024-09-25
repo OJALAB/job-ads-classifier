@@ -203,7 +203,7 @@ class BaseHierarchicalJobOffersClassifier:
         level_mapping = self.levels_labels_map[output_level]
         level_mapping_inv = self.levels_indices_map[output_level]
 
-        print("Predicting bottom-up ...")
+        #print("Predicting bottom-up ...")
         # Bottom-up accumulation of probabilities
         level_pred = np.zeros((pred.shape[0], len(level_labels)), dtype=np.float32)
         for i in range(pred.shape[1]):
@@ -226,7 +226,7 @@ class BaseHierarchicalJobOffersClassifier:
         level_mapping = self.levels_labels_map[output_level]
         level_mapping_inv = self.levels_indices_map[output_level]
 
-        print("Predicting for top-down ...")
+        #print("Predicting for top-down ...")
         # Top-down accumulation of probabilities
         for label in self.levels_labels[output_level]:
             for parent in self.hierarchy[label]['parents'] + [label]:
@@ -635,13 +635,13 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.transformer_model = transformer_arch['transformer_model']
         self.transformer_ckpt_path = transformer_arch['transformer_ckpt']
 
-        labels_groups = self.top_down_labels_groups if self.modeling_mode == 'top-down' else None,
-        labels_paths = self.top_down_labels_paths if self.modeling_mode == 'top-down' else None,
+        labels_groups = self.top_down_labels_groups if self.modeling_mode == 'top-down' else None
+        labels_paths = self.top_down_labels_paths if self.modeling_mode == 'top-down' else None
         labels_groups_mapping = self.top_down_labels_groups_mapping if self.modeling_mode == 'top-down' else None
 
         self.base_model = TransformerClassifier(
             model_name_or_path=self.transformer_ckpt_path if self.transformer_ckpt_path is not None and len(self.transformer_ckpt_path) > 0 else self.transformer_model,
-            output_size=self._get_output_size(self),
+            output_size=self._get_output_size(),
             train_batch_size=self.batch_size,
             eval_batch_size=self.batch_size,
             verbose=self.verbose,
