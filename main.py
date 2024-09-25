@@ -144,7 +144,7 @@ def main(command: str,
 
         if x_data_val != '' and y_data_val != '':
             model.fit(y, X, y_val=y_val, X_val=X_val)
-        else 
+        else: 
             model.fit(y, X)
 
     elif command == 'predict':
