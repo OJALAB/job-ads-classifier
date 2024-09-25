@@ -18,10 +18,11 @@ from job_offers_classifier.load_save import *
 @click.option("-y", "--y_data", type=str, required=True, default="")
 @click.option("-h", "--hierarchy_data", type=str, required=True, default="")
 @click.option("-m", "--model_dir", type=str, required=True, default="model")
+@click.option("-mm", "--modeling_mode", type=str, required=True, default="bottom-up")
+
 # Transformer model settings
 @click.option("-t", "--transformer_model", type=str, required=True, default="allegro/herbert-base-cased")
 @click.option("-tc", "--transformer_ckpt_path", type=str, required=True, default="")
-@click.option("-mm", "--modeling_mode", type=str, required=True, default="bottom-up")
 @click.option("-x_val", "--x_data_val", type=str, required=False, default="")
 @click.option("-y_val", "--y_data_val", type=str, required=False, default="")
 # Training parameters
@@ -55,10 +56,10 @@ def main(command: str,
          y_data: str,
          hierarchy_data: str,
          model_dir: str,
+         modeling_mode: str,
 
          transformer_model: str,
          transformer_ckpt_path: str,
-         modeling_mode: str,
          x_data_val: str,
          y_data_val: str,
 
@@ -110,6 +111,7 @@ def main(command: str,
             model = LinearJobOffersClassifier(
                 model_dir=model_dir,  # folder gdzie wszystkie elementy modelu będą zapisywane
                 hierarchy=hierarchy,  # hierarchia klas w formacie słownika <etykieta>: {'label': <etykieta>, 'level': <numer poziomu hierarchii, 'name': <nazwa etykiety> (opcjonalne), 'parents': <lista zawierająca wszystkich rodziców etykiety>}
+                modeling_mode=modeling_mode,
                 eps=eps,  # warunek stopu uczenia
                 c=cost,  # kontroluje regularyzacje, większa wartość = mniejsza regularyzacja
                 use_provided_hierarchy=use_provided_hierarchy,  # jeżeli ensemble = 1 i use_provided_hierarchy = True, zostanie użyta podana hierarchia w agumencie hierarchy
