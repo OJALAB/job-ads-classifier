@@ -6,7 +6,7 @@ Repository with hierarchical classifier of 6 digits occupation codes ([KZiS 2023
 
 # Authors
 
-+ Maciej Beręsewicz -- design of the study, data preparation and discuss
++ Maciej Beręsewicz -- design of the classifier, data preparation and discussion
 + Marek Wydmuch -- main developer, author of Python module
 + Herman Cherniaiev -- data processing and preparation
 + Robert Pater -- labour market consultation
