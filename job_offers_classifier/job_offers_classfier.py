@@ -1,5 +1,6 @@
 import gzip
 import os
+import pickle
 import string
 
 import numpy as np
@@ -89,6 +90,16 @@ def _require_transformer_dependencies():
         ) from exc
 
     return torch, TextDataset, TransformerDataModule, TrainerWrapper, TransformerClassifier
+
+
+def _load_stemmer_or_rebuild(stemmer_path, verbose):
+    if not os.path.exists(stemmer_path):
+        return _get_polish_stemmer(verbose)
+
+    try:
+        return load_obj(stemmer_path)
+    except (ModuleNotFoundError, ImportError, AttributeError, TypeError, ValueError, EOFError, pickle.UnpicklingError):
+        return _get_polish_stemmer(verbose)
 
 
 class BaseHierarchicalJobOffersClassifier:
@@ -516,7 +527,7 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.stemmer_path = os.path.join(self.model_dir, "stemmer.bin")
 
         self.tfidf_vectorizer = load_obj(self.tfidf_vectorizer_path)
-        self.stemmer = load_obj(self.stemmer_path) if os.path.exists(self.stemmer_path) else _get_polish_stemmer(self.verbose)
+        self.stemmer = _load_stemmer_or_rebuild(self.stemmer_path, self.verbose)
 
         if self.modeling_mode == 'top-down':
             self.base_model = HSM(self.model_dir)
