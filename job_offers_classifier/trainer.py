@@ -41,7 +41,11 @@ class TrainerWrapper:
         if checkpoint_args:
             self.checkpoint_args.update(checkpoint_args)
 
-        callbacks = [ModelCheckpoint(dirpath=self.ckpt_dir, **self.checkpoint_args)]
+        callbacks = []
+        enable_checkpointing = self.ckpt_dir is not None
+
+        if enable_checkpointing:
+            callbacks.append(ModelCheckpoint(dirpath=self.ckpt_dir, **self.checkpoint_args))
         if early_stopping:
             callbacks.append(EarlyStopping(**self.early_stopping_args))
 
@@ -53,9 +57,11 @@ class TrainerWrapper:
             #"auto_select_gpus": True, # Deprecated
             "precision": 32,
             "callbacks": callbacks,
+            "enable_checkpointing": enable_checkpointing,
             "enable_model_summary": verbose,
             "enable_progress_bar": verbose,
             "num_sanity_val_steps": 0,
+            "log_every_n_steps": 1,
         }
         if trainer_args:
             self.trainer_args.update(trainer_args)
@@ -66,6 +72,7 @@ class TrainerWrapper:
         if self.verbose:
             print(f"Starting training {module.__class__.__name__} ...")
 
+        module.train()
         self.trainer.fit(module, **kwargs)
 
     def test(self, module, **kwargs):

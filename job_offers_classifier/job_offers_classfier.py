@@ -777,7 +777,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         data_module = self._setup_data_module(dataset)
 
         trainer = TrainerWrapper(
-            ckpt_dir=self.ckpt_path,
+            ckpt_dir=None,
             trainer_args={
                 "devices": self.devices,
                 "precision": self.precision,
