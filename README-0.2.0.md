@@ -176,6 +176,40 @@ Practical guidance:
 - public Hugging Face models may emit warnings about unused task-specific weights when loaded through `AutoModel`; this is usually harmless
 - an `HF_TOKEN` is optional for public models and mainly affects rate limits and download convenience
 
+As of `2026-04-02`, the most practical newer model families to try in this repository are:
+
+- `answerdotai/ModernBERT-base`
+- `answerdotai/ModernBERT-large`
+- `FacebookAI/xlm-roberta-base`
+- `FacebookAI/xlm-roberta-large`
+- `microsoft/deberta-base`
+- `microsoft/deberta-large`
+- `microsoft/mpnet-base`
+
+Recommended starting points:
+
+- for a newer general-purpose encoder: `answerdotai/ModernBERT-base`
+- for multilingual work: `FacebookAI/xlm-roberta-base`
+- for Polish-focused work: `allegro/herbert-base-cased`
+- for the smallest and fastest smoke-test model: `google/bert_uncased_L-2_H-128_A-2`
+
+Model-family notes:
+
+- `ModernBERT` is currently the most attractive newer encoder family here if you want a modern BERT-style backbone with long-context support
+- `XLM-RoBERTa` remains the safest multilingual default
+- `DeBERTa` is a strong encoder alternative for classification workloads, although it is older than `ModernBERT`
+- `MPNet` is still a good compact encoder option, especially when you want a smaller general-purpose backbone
+
+Experimental but possible:
+
+- `jinaai/jina-embeddings-v3-hf`
+
+Why `jinaai/jina-embeddings-v3-hf` is only experimental in this repository:
+
+- it is a multilingual embedding model with task-specific adapters and its own preferred embedding workflow
+- the current classifier code still takes `last_hidden_state[:, 0, :]` and does not use its task-specific adapter interface directly
+- so it can be tested here, but it is not the first model I would recommend as a production default in this codebase
+
 Models that are not a drop-in fit right now:
 
 - decoder-only LLMs such as Gemma, Llama, Mistral, and similar causal language models
@@ -189,6 +223,14 @@ Why Gemma is not a safe default here:
 - decoder-only models do not match that assumption as cleanly as encoder backbones do
 
 So in practice: you can use many other Hugging Face encoder models here, but Gemma is not currently a recommended drop-in replacement.
+
+### Quick model selection guide
+
+- Use `answerdotai/ModernBERT-base` if you want the best first modern baseline.
+- Use `FacebookAI/xlm-roberta-base` if you need multilingual coverage.
+- Use `allegro/herbert-base-cased` if Polish performance matters more than model novelty.
+- Use `google/bert_uncased_L-2_H-128_A-2` only for quick smoke tests and lightweight examples.
+- Avoid Gemma, Llama, Mistral, Qwen, GPT-style, and other decoder-only models in the current pipeline.
 
 ## Tests
 
