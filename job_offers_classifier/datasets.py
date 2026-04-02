@@ -46,7 +46,7 @@ class TextDataset(Dataset):
         return {key: val[idx] for key, val in encodings.items()}
 
     def _tokenize(self, text):
-        return self.tokenizer.batch_encode_plus(
+        return self.tokenizer(
             text,
             add_special_tokens=True,
             max_length=self.max_seq_length,
