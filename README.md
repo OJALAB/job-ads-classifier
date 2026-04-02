@@ -19,6 +19,11 @@ Default entry files point to the maintained line:
 - `requirements.txt` -> `requirements-0.2.0.txt`
 - `requirements-colab.txt` -> `requirements-colab-0.2.0.txt`
 
+Citation:
+
+- [CITATION.cff](CITATION.cff) contains the repository citation metadata used by GitHub
+- the preferred paper citation is in both versioned READMEs
+
 Suggested usage:
 
 - use `0.1.0` when you want to compare with the original project layout and installation style

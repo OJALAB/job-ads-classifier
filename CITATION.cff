@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite the article below."
+title: "Hierarchical Job Ads Classifier"
+version: "0.2.0"
+date-released: 2026-04-02
+license: "MIT"
+repository-code: "https://github.com/OJALAB/job-ads-classifier"
+authors:
+  - family-names: "Beręsewicz"
+    given-names: "Maciej"
+  - family-names: "Wydmuch"
+    given-names: "Marek"
+  - family-names: "Cherniaiev"
+    given-names: "Herman"
+  - family-names: "Pater"
+    given-names: "Robert"
+preferred-citation:
+  type: article
+  title: "Multilingual Hierarchical Classification of Job Advertisements for Job Vacancy Statistics"
+  authors:
+    - family-names: "Beręsewicz"
+      given-names: "Maciej"
+    - family-names: "Wydmuch"
+      given-names: "Marek"
+    - family-names: "Cherniaiev"
+      given-names: "Herman"
+    - family-names: "Pater"
+      given-names: "Robert"
+  journal: "Journal of Official Statistics"
+  year: 2026
+  volume: 42
+  issue: 1
+  start: 23
+  end: 61
+  doi: "10.1177/0282423X251395400"
+  url: "https://doi.org/10.1177/0282423X251395400"

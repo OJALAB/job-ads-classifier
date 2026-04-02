@@ -93,3 +93,9 @@ The original repository pinned:
 - `transformers==4.44.2`
 
 This file is intentionally preserved as a historical reference. For a maintained install path, use [README-0.2.0.md](README-0.2.0.md).
+
+## Citation
+
+If you use this repository, please cite:
+
+Beręsewicz, M., Wydmuch, M., Cherniaiev, H., and Pater, R. (2026). *Multilingual Hierarchical Classification of Job Advertisements for Job Vacancy Statistics*. Journal of Official Statistics, 42(1), 23-61. https://doi.org/10.1177/0282423X251395400

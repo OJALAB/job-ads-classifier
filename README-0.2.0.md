@@ -2,6 +2,14 @@
 
 Modernized release for current Python and ML libraries, with CPU/GPU-safe runtime handling and pytest coverage.
 
+## Citation
+
+If you use this repository, please cite:
+
+Beręsewicz, M., Wydmuch, M., Cherniaiev, H., and Pater, R. (2026). *Multilingual Hierarchical Classification of Job Advertisements for Job Vacancy Statistics*. Journal of Official Statistics, 42(1), 23-61. https://doi.org/10.1177/0282423X251395400
+
+GitHub citation metadata is also available in `CITATION.cff`.
+
 ## What changed in 0.2.0
 
 - Python support is centered on Python 3.11 and 3.12.
