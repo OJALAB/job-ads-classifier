@@ -1,14 +1,17 @@
-from typing import Optional, Dict, List
+from typing import List, Optional
 from pprint import pprint
 
 import numpy as np
 import torch
-from torch import nn, optim
+from torch import nn
 import torch.nn.functional as F
-from pytorch_lightning import LightningModule
-from transformers import AdamW, AutoConfig, AutoModel, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
-from transformers.modeling_outputs import SequenceClassifierOutput
-from torchmetrics import MetricCollection, Recall, Precision, Accuracy, ConfusionMatrix
+from torch.optim import AdamW
+try:
+    from lightning.pytorch import LightningModule
+except ImportError:  # pragma: no cover - compatibility fallback
+    from pytorch_lightning import LightningModule
+from transformers import AutoConfig, AutoModel, get_linear_schedule_with_warmup
+from torchmetrics import Accuracy, MetricCollection, Recall
 
 from job_offers_classifier.classification_utils import *
 
@@ -106,16 +109,15 @@ class TransformerClassifier(LightningModule):
         self.output = FullyConnectedOutput(self.config.hidden_size, output_size, layer_units=(), hidden_dropout=hidden_dropout, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss(reduction='none'), labels_groups=labels_groups, labels_groups_mapping=labels_groups_mapping) 
         
         metric_dict = {
-            "acc/r@1": Accuracy(task="multiclass", num_classes=self.eval_num_labels),
+            "acc_at_1": Accuracy(task="multiclass", num_classes=self.eval_num_labels),
             "macro_acc": Accuracy(task="multiclass", num_classes=self.eval_num_labels, average='macro'),
-            #"cf_matrix_true": ConfusionMatrix(num_classes=num_labels, normalize='all'),
-            #"cf_matrix_all": ConfusionMatrix(num_classes=num_labels, normalize='all')
         }
 
         for i in range(2, min(self.eval_num_labels, eval_top_k + 1)):
-            metric_dict[f"r@{i}"] = Recall(task="multiclass", num_classes=self.eval_num_labels, top_k=i)
+            metric_dict[f"recall_at_{i}"] = Recall(task="multiclass", num_classes=self.eval_num_labels, top_k=i)
 
-        self.metrics = MetricCollection(metric_dict)
+        self.val_metrics = MetricCollection(metric_dict, prefix="val_")
+        self.test_metrics = MetricCollection(metric_dict, prefix="test_")
 
     def forward(self, batch, labels=None):
         transformer_output = self.transformer(batch['input_ids'], attention_mask=batch['attention_mask'])
@@ -127,8 +129,7 @@ class TransformerClassifier(LightningModule):
         
     def training_step(self, batch, batch_idx):
         if batch['labels'] is not None:  # Windows fix
-            batch['labels'] = batch['labels'].type(torch.LongTensor)
-            batch['labels'] = batch['labels'].to(self.device)
+            batch['labels'] = batch['labels'].long().to(self.device)
     
         loss, scores = self.forward(batch, batch['labels'])
         self.log('train_loss', loss, on_epoch=True, logger=True)
@@ -136,13 +137,9 @@ class TransformerClassifier(LightningModule):
 
     def _eval_step(self, batch, eval_name='val'):
         if batch['labels'] is not None:  # Windows fix
-            batch['labels'] = batch['labels'].type(torch.LongTensor)
-            batch['labels'] = batch['labels'].to(self.device)
+            batch['labels'] = batch['labels'].long().to(self.device)
     
         loss, scores = self.forward(batch, batch['labels'])
-        if self.metrics is None:
-            return loss
-        
         if self.hparams.labels_paths is not None:
             new_scores = torch.zeros((scores.shape[0], self.eval_num_labels)).to(self.device)
             for i, path in enumerate(self.hparams.labels_paths):
@@ -153,27 +150,48 @@ class TransformerClassifier(LightningModule):
             true_loss = F.cross_entropy(scores, batch['labels'])
             self.log(f'{eval_name}_true_loss', true_loss, on_epoch=True, logger=True)
 
-        #print(scores.argmax(dim=1), batch['labels'])
-        self.log(f'{eval_name}_performance', self.metrics(scores, batch['labels']), on_epoch=True, logger=True)
+        metrics = self.val_metrics if eval_name == "val" else self.test_metrics
+        self.log_dict(metrics(scores, batch['labels']), on_epoch=True, on_step=False, logger=True)
         self.log(f'{eval_name}_loss', loss, on_epoch=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         return self._eval_step(batch, eval_name='val')
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         if self.hparams.verbose:
             print("Validation performance:")
-            pprint(self.metrics.compute())
-        self.metrics.reset()
+            pprint(self.val_metrics.compute())
+        self.val_metrics.reset()
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         return self._eval_step(batch, eval_name='test')
 
-    def test_epoch_end(self, outputs):
+    def on_test_epoch_end(self):
         if self.hparams.verbose:
             print("Test performance:")
-            pprint(self.metrics.compute())
+            pprint(self.test_metrics.compute())
+        self.test_metrics.reset()
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        output = self.forward(batch)
+        if isinstance(output, tuple):
+            _, output = output
+        return output.detach().cpu()
+
+    def load_state_dict(self, state_dict, strict=True):
+        metric_prefixes = ("metrics.", "val_metrics.", "test_metrics.")
+        has_legacy_metric_keys = any(key.startswith(metric_prefixes) for key in state_dict)
+
+        if has_legacy_metric_keys:
+            state_dict = {
+                key: value
+                for key, value in state_dict.items()
+                if not key.startswith(metric_prefixes)
+            }
+            strict = False
+
+        return super().load_state_dict(state_dict, strict=strict)
 
     def setup(self, stage=None) -> None:
         if stage != "fit":
@@ -183,11 +201,8 @@ class TransformerClassifier(LightningModule):
         train_loader = self.trainer.datamodule.train_dataloader()
 
         # Calculate total steps
-        #tb_size = self.hparams.train_batch_size * max(1, self.trainer.gpus)
-        tb_size = self.hparams.train_batch_size * max(1, self.trainer.num_devices)
         ab_size = self.trainer.accumulate_grad_batches
-        dl_size = len(train_loader.dataset) * self.trainer.max_epochs
-        self.total_steps = dl_size // tb_size // ab_size
+        self.total_steps = max(1, len(train_loader) * self.trainer.max_epochs // max(1, ab_size))
 
         self.num_warmup_steps = self.hparams.warmup_steps
         if self.hparams.warmup_steps < 1:
@@ -199,9 +214,11 @@ class TransformerClassifier(LightningModule):
 
     def configure_optimizers(self):
         # Prepare optimizer and schedule (linear warmup and decay)
-        optimizer = AdamW(self._get_optimizer_grouped_parameters(),
-                          lr=self.hparams.learning_rate,
-                          eps=self.hparams.adam_epsilon)
+        optimizer = AdamW(
+            self._get_optimizer_grouped_parameters(),
+            lr=self.hparams.learning_rate,
+            eps=self.hparams.adam_epsilon,
+        )
 
         scheduler = get_linear_schedule_with_warmup(
             optimizer,

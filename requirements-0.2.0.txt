@@ -1,0 +1,19 @@
+# Install a matching PyTorch build first if you want GPU acceleration.
+# CPU-only example:
+#   pip install torch
+# GPU example:
+#   use the selector at https://pytorch.org/get-started/locally/ and install torch first
+click==8.3.1
+lightning==2.6.1
+napkinxc==0.7.2
+numpy==2.4.3
+pandas==3.0.2
+pyreadr==0.5.4
+pystempel==2.0.0
+pytest==8.4.2
+scikit-learn==1.8.0
+scipy==1.16.3
+stop-words==2025.11.4
+torchmetrics==1.9.0
+tqdm==4.67.3
+transformers==5.4.0

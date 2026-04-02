@@ -1,0 +1,5 @@
+sql python analiza raportowanie danych
+python backend api serwer mikroserwisy
+bilans faktury rachunkowosc finanse
+obsluga klienta sklep oferta sprzedaż
+

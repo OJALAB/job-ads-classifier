@@ -1,13 +1,11 @@
-import sys
-import os
 import pickle
-import json
-import jsbeautifier
-import pickle
-import pyreadr
 import pandas as pd
 import numpy as np
-import scipy
+
+try:
+    import pyreadr
+except ImportError:  # pragma: no cover - depends on optional dependency
+    pyreadr = None
 
 
 def load_obj(filename):
@@ -23,6 +21,8 @@ def save_obj(filename, obj):
 def load_to_df(filename):
     ext = filename.split(".")[-1]
     if ext in ["rds"]:
+        if pyreadr is None:
+            raise ImportError("Loading .rds files requires the optional dependency `pyreadr`.")
         # df is a dictionary where keys are the name of objects and the values python
         # objects. In the case of Rds there is only one object with None as key
         df = pyreadr.read_r(filename)[None]
@@ -34,6 +34,8 @@ def load_to_df(filename):
         df = pd.read_csv(filename, low_memory=False, delimiter="\t", dtype=object)
     elif ext in ["pkl"]:
         df = pd.read_pickle(filename)
+    else:
+        raise RuntimeError(f"Extension {ext} of {filename} is not supported")
 
     return df
 
@@ -76,4 +78,3 @@ def save_as_text(filename, texts):
     with open(filename, "w", encoding="utf-8") as file:
         for line in texts:
             file.write(f"{line}\n")
-

@@ -1,6 +1,10 @@
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+try:
+    from lightning.pytorch import Trainer
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+except ImportError:  # pragma: no cover - compatibility fallback
+    from pytorch_lightning import Trainer
+    from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+    from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 
 
 class TrainerWrapper:
@@ -37,7 +41,7 @@ class TrainerWrapper:
         if checkpoint_args:
             self.checkpoint_args.update(checkpoint_args)
 
-        callbacks = [ModelCheckpoint(self.ckpt_dir, **self.checkpoint_args)]
+        callbacks = [ModelCheckpoint(dirpath=self.ckpt_dir, **self.checkpoint_args)]
         if early_stopping:
             callbacks.append(EarlyStopping(**self.early_stopping_args))
 

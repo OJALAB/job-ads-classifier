@@ -1,7 +1,10 @@
-from pytorch_lightning import LightningDataModule
+try:
+    from lightning.pytorch import LightningDataModule
+except ImportError:  # pragma: no cover - compatibility fallback
+    from pytorch_lightning import LightningDataModule
+
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer
-from typing import Dict, Optional
 
 class TransformerDataModule(LightningDataModule):
     def __init__(
@@ -56,4 +59,4 @@ class TransformerDataModule(LightningDataModule):
         return self._get_dataloader("val", batch_size=self.eval_batch_size)
 
     def test_dataloader(self):
-        return self._get_dataloader("test", batch_size=self.train_batch_size)
+        return self._get_dataloader("test", batch_size=self.eval_batch_size)

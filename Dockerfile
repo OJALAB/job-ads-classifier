@@ -1,18 +1,22 @@
-# Select image matching your hardware from https://hub.docker.com/r/pytorch/pytorch/tags
-FROM pytorch/pytorch:1.9.1-cuda11.1-cudnn8-devel
+# Reference CPU image for release 0.2.0.
+# For GPU containers, install the matching torch build for your CUDA runtime before the requirements step.
+FROM python:3.12-slim
 
 WORKDIR /job-offers-classifier
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements.txt
+
+RUN python -m pip install --upgrade pip \
+    && python -m pip install torch \
+    && python -m pip install -r requirements.txt
+
 COPY . .
 
-RUN apt-get update && apt-get install -y --no-install-recommends git cmake build-essential gcc-8 g++-8
+CMD ["python", "main.py", "--help"]
 
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 8
-RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-8 8
-
-RUN gcc --version
-
-RUN python3 -c "import sys; print(sys.version)"
-
-RUN pip3 install -r requirements.txt
-
-CMD python3 main.py fit LinearJobOffersClassifier -x train_test_data/example/x_train.txt -y train_test_data/example/y_train.txt -h train_test_data/example/classes.tsv -m models/main_example

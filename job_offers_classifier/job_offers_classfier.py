@@ -1,35 +1,94 @@
+import gzip
 import os
+import string
+
 import numpy as np
 import pandas as pd
+from scipy.sparse import csr_matrix, hstack
 from tqdm import tqdm
-from scipy.sparse import csr_matrix, vstack, hstack
-from sklearn.datasets import dump_svmlight_file
-from sklearn.feature_extraction.text import TfidfVectorizer
-from stempel import StempelStemmer
-from stempel.streams import DataInputStream
-from stop_words import get_stop_words
-import string
-from napkinxc.models import HSM, OVR
-import gzip
 
 from job_offers_classifier.load_save import save_obj, load_obj
-from job_offers_classifier.datasets import *
-from job_offers_classifier.data_modules import TransformerDataModule
-from job_offers_classifier.trainer import TrainerWrapper
-from job_offers_classifier.transformer_module import TransformerClassifier
 
 
-# Hack to silent StempelStemmer (via monkey patching)
-@classmethod
-def from_file_silent(cls, fpath):
-    if fpath.endswith(".gz"):
-        with gzip.open(fpath, "rb") as f:
-            return cls.from_stream(DataInputStream(f, None))
-    else:
+def _build_silent_from_file(data_input_stream):
+    @classmethod
+    def from_file_silent(cls, fpath):
+        if fpath.endswith(".gz"):
+            with gzip.open(fpath, "rb") as f:
+                return cls.from_stream(data_input_stream(f, None))
         with open(fpath, "rb") as f:
-            return cls.from_stream(DataInputStream(f, None))
+            return cls.from_stream(data_input_stream(f, None))
 
-from_file_verbose = StempelStemmer.from_file
+    return from_file_silent
+
+
+def _require_linear_dependencies():
+    try:
+        from sklearn.datasets import dump_svmlight_file
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from stop_words import get_stop_words
+        from napkinxc.models import HSM, OVR
+    except ImportError as exc:
+        raise ImportError(
+            "LinearJobOffersClassifier requires scikit-learn, stop-words, napkinxc, and pystempel."
+        ) from exc
+
+    return dump_svmlight_file, TfidfVectorizer, get_stop_words, HSM, OVR
+
+
+def _get_polish_stemmer(verbose):
+    try:
+        from pystempel import Stemmer
+
+        original_disable_tqdm = os.environ.get("DISABLE_TQDM")
+        if not verbose:
+            os.environ["DISABLE_TQDM"] = "True"
+        try:
+            return Stemmer.polimorf()
+        finally:
+            if original_disable_tqdm is None:
+                os.environ.pop("DISABLE_TQDM", None)
+            else:
+                os.environ["DISABLE_TQDM"] = original_disable_tqdm
+    except ImportError:
+        pass
+
+    try:
+        from stempel import StempelStemmer
+        from stempel.streams import DataInputStream
+    except ImportError as exc:
+        raise ImportError("Could not import either `pystempel` or the legacy `stempel` package.") from exc
+
+    original_from_file = StempelStemmer.from_file
+    if not verbose:
+        StempelStemmer.from_file = _build_silent_from_file(DataInputStream)
+    try:
+        return StempelStemmer.polimorf()
+    finally:
+        StempelStemmer.from_file = original_from_file
+
+
+def _stem_token(stemmer, token):
+    if hasattr(stemmer, "stem"):
+        return stemmer.stem(token)
+    if callable(stemmer):
+        return stemmer(token)
+    raise TypeError("Unsupported stemmer instance")
+
+
+def _require_transformer_dependencies():
+    try:
+        import torch
+        from job_offers_classifier.datasets import TextDataset
+        from job_offers_classifier.data_modules import TransformerDataModule
+        from job_offers_classifier.trainer import TrainerWrapper
+        from job_offers_classifier.transformer_module import TransformerClassifier
+    except ImportError as exc:
+        raise ImportError(
+            "TransformerJobOffersClassifier requires torch, lightning, transformers, and torchmetrics."
+        ) from exc
+
+    return torch, TextDataset, TransformerDataModule, TrainerWrapper, TransformerClassifier
 
 
 class BaseHierarchicalJobOffersClassifier:
@@ -153,7 +212,7 @@ class BaseHierarchicalJobOffersClassifier:
         assert len(self.top_down_labels_paths) == self.last_level_labels_count
 
         self.top_down_labels_groups_mapping = np.full(
-            (self.last_level_labels_count, len(self.top_down_labels_groups)), -1, dtype=np.float32
+            (self.last_level_labels_count, len(self.top_down_labels_groups)), -1, dtype=np.int64
         )
 
         for label_idx, path in enumerate(self.top_down_labels_paths):
@@ -322,15 +381,17 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
     # Fit related methods
     def _process_text(self, X_text, lang='pl'):
+        _, _, get_stop_words, _, _ = _require_linear_dependencies()
         if lang == "pl":
             if self.stemmer is None:
                 if self.verbose:
                     print("Loading stemmer ...")
-                    StempelStemmer.from_file = from_file_verbose
-                else:
-                    StempelStemmer.from_file = from_file_silent
-                self.stemmer = StempelStemmer.polimorf()
-                save_obj(self.stemmer_path, self.stemmer)
+                self.stemmer = _get_polish_stemmer(self.verbose)
+                try:
+                    save_obj(self.stemmer_path, self.stemmer)
+                except Exception:
+                    # Some modern stemmer objects are not pickle-friendly. Rebuild on load instead.
+                    pass
             stop_words = set(get_stop_words(lang))
             punc_to_remove = {ord(p): ' ' for p in string.punctuation}
         else:
@@ -341,7 +402,7 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         X_proc_text = [""] * len(X_text)
         for i, x_i in enumerate(tqdm(X_text, disable=not self.verbose)):
             x_i = str(x_i).translate(punc_to_remove)
-            x_i = [self.stemmer.stem(w.lower()) for w in x_i.split(' ') if len(w)]
+            x_i = [_stem_token(self.stemmer, w.lower()) for w in x_i.split(' ') if len(w)]
             x_i = ' '.join([w for w in x_i if w is not None and not w in stop_words])
             x_i = x_i.replace("\n", " ").replace("\r", " ")
             X_proc_text[i] = x_i
@@ -349,6 +410,7 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         return X_proc_text
 
     def _vectorize_text(self, X_text):
+        _, TfidfVectorizer, _, _, _ = _require_linear_dependencies()
         if self.tfidf_vectorizer is None:
             if self.verbose:
                 print("Fitting tf-idf vectorizer ...")
@@ -385,6 +447,7 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         if not isinstance(y, list):
             raise ValueError("y should be a list")
 
+        dump_svmlight_file, _, _, HSM, OVR = _require_linear_dependencies()
         self._init_fit()
 
         self.tfidf_vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.bin")
@@ -437,13 +500,14 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
     # Prediction related methods
     def load(self, model_dir):
+        _, _, _, HSM, OVR = _require_linear_dependencies()
         self._init_load(model_dir)
 
         self.tfidf_vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.bin")
         self.stemmer_path = os.path.join(self.model_dir, "stemmer.bin")
 
         self.tfidf_vectorizer = load_obj(self.tfidf_vectorizer_path)
-        self.stemmer = load_obj(self.stemmer_path)
+        self.stemmer = load_obj(self.stemmer_path) if os.path.exists(self.stemmer_path) else _get_polish_stemmer(self.verbose)
 
         if self.modeling_mode == 'top-down':
             self.base_model = HSM(self.model_dir)
@@ -489,7 +553,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                  accelerator="auto",
                  num_nodes=1,
                  threads=-1,
-                 precision=16,
+                 precision="16-mixed",
                  verbose=True):
         super().__init__(model_dir=model_dir, hierarchy=hierarchy, modeling_mode = modeling_mode, verbose=verbose)
 
@@ -509,7 +573,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.accelerator = accelerator
         self.num_nodes = num_nodes
         self.threads = threads
-        if self.threads == -1:
+        if self.threads <= 0:
             self.threads = os.cpu_count()
         self.precision = precision
         self.fit_single = False
@@ -520,6 +584,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
 
     def _create_text_dataset(self, y, X, labels_groups=None):
+        _, TextDataset, _, _, _ = _require_transformer_dependencies()
         if y is not None and isinstance(y[0], list):
             return TextDataset(X, labels=y,
                     num_labels=self.last_level_labels_count,
@@ -530,6 +595,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                             lazy_encode=True, labels_dense_vec=False)
 
     def _setup_data_module(self, dataset):
+        _, _, TransformerDataModule, _, _ = _require_transformer_dependencies()
         text_dataset = {}
 
         if 'train' in dataset:
@@ -556,6 +622,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         if output_size is None:
             raise RuntimeError("Output size is not provided, this should not happen")
 
+        _, _, _, TrainerWrapper, TransformerClassifier = _require_transformer_dependencies()
         dataset = {"train": (y, X)}
         if y_val is not None and X_val is not None:
             dataset["val"] = (y_val, X_val)
@@ -599,6 +666,7 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         save_obj(os.path.join(self.model_dir, "transformer_arch.bin"), {
             'transformer_model': self.transformer_model,
             'transformer_ckpt': self.transformer_ckpt_path,
+            'modeling_mode': self.modeling_mode,
         })
 
         if self.modeling_mode in ["bottom-up", "bottom-up-flat", "top-down"]:
@@ -630,12 +698,50 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
     def _get_output_size(self):
         return len(self.top_down_labels_map) if self.modeling_mode == "top-down" else self.last_level_labels_count
 
+    def _find_checkpoint_path(self):
+        ckpt_path = os.path.join(self.model_dir, "transformer_classifier.ckpt")
+        if os.path.exists(ckpt_path):
+            return ckpt_path
+
+        ckpt_dir = os.path.join(self.model_dir, "ckpts")
+        ckpt_files = [f for f in os.listdir(ckpt_dir) if f.endswith(".ckpt")]
+        if len(ckpt_files) == 0:
+            raise RuntimeError(f"Cannot find checkpoint in {self.model_dir}")
+
+        ckpt_files = sorted(
+            ckpt_files,
+            key=lambda x: int(x.split("=")[1].split(".")[0].split("-")[0]),
+            reverse=True,
+        )
+        return os.path.join(ckpt_dir, ckpt_files[0])
+
+    def _infer_modeling_mode_from_checkpoint(self, torch_module):
+        try:
+            checkpoint = torch_module.load(self.ckpt_path, map_location="cpu")
+        except Exception:
+            return self.modeling_mode
+
+        state_dict = checkpoint.get("state_dict", checkpoint)
+        weight = state_dict.get("output.sequential.0.weight")
+        if weight is None:
+            return self.modeling_mode
+
+        output_size = int(weight.shape[0])
+        if output_size == len(self.top_down_labels_map):
+            return "top-down"
+        if output_size == self.last_level_labels_count:
+            return "bottom-up"
+        return self.modeling_mode
+
     def load(self, model_dir):
+        torch, _, _, _, TransformerClassifier = _require_transformer_dependencies()
         self._init_load(model_dir)
 
         transformer_arch = load_obj(os.path.join(self.model_dir, "transformer_arch.bin"))
         self.transformer_model = transformer_arch['transformer_model']
         self.transformer_ckpt_path = transformer_arch['transformer_ckpt']
+        self.ckpt_path = self._find_checkpoint_path()
+        self.modeling_mode = transformer_arch.get('modeling_mode', self._infer_modeling_mode_from_checkpoint(torch))
 
         labels_groups = self.top_down_labels_groups if self.modeling_mode == 'top-down' else None
         labels_paths = self.top_down_labels_paths if self.modeling_mode == 'top-down' else None
@@ -652,27 +758,24 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
             labels_groups_mapping=labels_groups_mapping
         )
 
-        # This is a bit hacky, should be done by the proper hook in the TrainerWrapper
-        self.ckpt_path = os.path.join(self.model_dir, "transformer_classifier.ckpt")
-        if not os.path.exists(self.ckpt_path):
-            # Try to find checkpoint in ckpts directory
-            ckpt_files = [f for f in os.listdir(os.path.join(self.model_dir, "ckpts")) if f.endswith(".ckpt")]
-            if len(ckpt_files) == 0:
-                raise RuntimeError(f"Cannot find checkpoint in {self.model_dir}")
-            
-            # Find the checkpoint with the highest epoch number
-            ckpt_files = sorted(ckpt_files, key=lambda x: int(x.split("=")[1].split(".")[0].split("-")[0]), reverse=True)
-            self.ckpt_path = os.path.join(self.model_dir, "ckpts", ckpt_files[0])
-
 
     def _predict(self, X):
         if self.base_model is None:
             raise RuntimeError(f"Cannot predict, the {self.__class__.__name__} is not fitted")
 
+        torch, _, _, TrainerWrapper, _ = _require_transformer_dependencies()
         dataset = {"test": (None, X)}
         data_module = self._setup_data_module(dataset)
 
-        trainer = TrainerWrapper(ckpt_dir=self.ckpt_path, trainer_args={"devices": self.devices, "precision": self.precision},)
+        trainer = TrainerWrapper(
+            ckpt_dir=self.ckpt_path,
+            trainer_args={
+                "devices": self.devices,
+                "precision": self.precision,
+                "accelerator": self.accelerator,
+                "num_nodes": self.num_nodes,
+            },
+        )
         pred = trainer.predict(self.base_model, dataloaders=data_module.test_dataloader(), ckpt_path=self.ckpt_path)
         return np.array(torch.vstack(pred))
 

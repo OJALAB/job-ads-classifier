@@ -1,0 +1,9 @@
+analityk danych python sql raportowanie modelowanie danych
+python sql analiza danych dashboard raportowanie
+programista backend python api flask integracje serwer
+backend developer python fastapi mikroserwisy api
+ksiegowy finanse faktury bilans vat rachunkowosc
+rachunkowosc ksiegowy deklaracje podatkowe bilans finanse
+sprzedawca obsluga klienta sklep sprzedaż oferta zamowienia
+handel sklep klient sprzedaż doradztwo oferta
+

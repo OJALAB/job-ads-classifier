@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-ads-classifier"
+version = "0.2.0"
+description = "Hierarchical job ads classifier with linear and transformer backends."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Maciej Beręsewicz" },
+  { name = "Marek Wydmuch" },
+  { name = "Herman Cherniaiev" },
+  { name = "Robert Pater" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "click>=8.3,<9",
+  "numpy>=2.4,<2.5",
+  "pandas>=3.0,<3.1",
+  "pyreadr>=0.5.4,<0.6",
+  "scipy>=1.16,<1.17",
+  "tqdm>=4.67,<5",
+]
+
+[project.optional-dependencies]
+linear = [
+  "napkinxc>=0.7.2,<0.8",
+  "pystempel>=2.0.0,<3",
+  "scikit-learn>=1.8,<1.9",
+  "stop-words>=2025.11.4,<2026",
+]
+transformer = [
+  "lightning>=2.6,<2.7",
+  "torchmetrics>=1.9,<2",
+  "transformers>=5.4,<5.5",
+]
+test = [
+  "pytest>=7.4,<9",
+]
+
+[project.scripts]
+job-ads-classifier = "main:main"
+
+[tool.setuptools.packages.find]
+include = ["job_offers_classifier*"]
+

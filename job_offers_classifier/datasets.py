@@ -6,6 +6,8 @@ from job_offers_classifier.classification_utils import *
 
 
 def get_num_labels(labels):
+    if labels is None:
+        return 0
     if len(labels.shape) > 1:
         return labels.shape[1]
     else:
@@ -31,7 +33,7 @@ class TextDataset(Dataset):
 
         self.num_labels = get_num_labels(labels) if num_labels is None else num_labels
         if len(self.labels.shape) > 1 and self.labels.shape[1] != num_labels:
-            self.labels.resize((self.labels[0], num_labels))
+            self.labels.resize((self.labels.shape[0], num_labels))
 
         self.encodings = None
         self.tokenizer = None
@@ -68,7 +70,7 @@ class TextDataset(Dataset):
         return self.num_labels
 
     def __getitem__(self, idx):
-        if self.encodings:
+        if self.encodings is not None:
             item = TextDataset._prepare_encodings(self.encodings, idx)
         else:
             item = TextDataset._prepare_encodings(self._tokenize([self.texts[idx]]), 0)

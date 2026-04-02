@@ -1,4 +1,3 @@
-import pandas as pd
 import numpy as np
 
 
@@ -92,6 +91,6 @@ def filter_classes(dfs, classes, class_field='class'):
 
 
 def top_k_prediction(pred, top_k):
-    top_k_labels = np.flip(np.argsort(pred, axis=1))[:, top_k]
-    top_k_prob = pred[:, top_k_labels]
+    top_k_labels = np.flip(np.argsort(pred, axis=1), axis=1)[:, :top_k]
+    top_k_prob = np.take_along_axis(pred, top_k_labels, axis=1)
     return top_k_labels, top_k_prob
