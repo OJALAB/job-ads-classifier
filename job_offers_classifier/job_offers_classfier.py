@@ -116,6 +116,15 @@ class BaseHierarchicalJobOffersClassifier:
         self._process_hierarchy()
 
     def _process_y(self, y):
+        missing_labels = [y_i for y_i in y if y_i not in self.last_level_labels_map]
+        if missing_labels:
+            missing_preview = ", ".join(repr(label) for label in missing_labels[:5])
+            raise ValueError(
+                "Found labels that are not present in the last hierarchy level. "
+                f"Examples: {missing_preview}. "
+                "Check for blank lines or labels outside the provided hierarchy."
+            )
+
         return [self.last_level_labels_map[y_i] for y_i in y]
 
     # def _bottom_up_process_y(self, y):

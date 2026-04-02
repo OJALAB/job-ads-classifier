@@ -6,4 +6,3 @@ ksiegowy finanse faktury bilans vat rachunkowosc
 rachunkowosc ksiegowy deklaracje podatkowe bilans finanse
 sprzedawca obsluga klienta sklep sprzedaż oferta zamowienia
 handel sklep klient sprzedaż doradztwo oferta
-
