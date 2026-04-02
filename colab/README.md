@@ -9,7 +9,9 @@ Recommended starting point:
 - `colab-existing-model-gpu-predict-0.2.0.ipynb`
 - `colab-short-transformer-training-gpu-0.2.0.ipynb`
 
-Both notebooks currently target repository tag `v0.2.1`.
+The legacy smoke and RepOD notebooks currently target repository tag `v0.2.1`.
+
+The GPU-specific notebooks clone `main` so they include the latest Colab fixes.
 
 The notebook covers:
 
