@@ -383,6 +383,21 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.stemmer = None
         self.verbose = verbose
 
+    def _infer_modeling_mode_on_load(self):
+        metadata_path = os.path.join(self.model_dir, "linear_arch.bin")
+        if os.path.exists(metadata_path):
+            try:
+                metadata = load_obj(metadata_path)
+                modeling_mode = metadata.get("modeling_mode")
+                if modeling_mode in {"top-down", "bottom-up"}:
+                    return modeling_mode
+            except Exception:
+                pass
+
+        if os.path.exists(os.path.join(self.model_dir, "tree.bin")):
+            return "top-down"
+        return "bottom-up"
+
     def _get_napkixc_hierarchy(self):
         napkixc_hierarchy = [(-1, 0, -1)]
         nodes_map = {node['label']: i + 1 for i, node in enumerate(self.hierarchy.values())}
@@ -470,6 +485,10 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         dump_svmlight_file, _, _, HSM, OVR = _require_linear_dependencies()
         self._init_fit()
 
+        save_obj(os.path.join(self.model_dir, "linear_arch.bin"), {
+            "modeling_mode": self.modeling_mode,
+        })
+
         self.tfidf_vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.bin")
         self.stemmer_path = os.path.join(self.model_dir, "stemmer.bin")
 
@@ -522,6 +541,7 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
     def load(self, model_dir):
         _, _, _, HSM, OVR = _require_linear_dependencies()
         self._init_load(model_dir)
+        self.modeling_mode = self._infer_modeling_mode_on_load()
 
         self.tfidf_vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.bin")
         self.stemmer_path = os.path.join(self.model_dir, "stemmer.bin")
@@ -531,8 +551,10 @@ class LinearJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
         if self.modeling_mode == 'top-down':
             self.base_model = HSM(self.model_dir)
-        elif self.modeling_mode == 'bottom-up' or os.path.exists(os.path.join(self.model_dir, "tree.bin")):
+        elif self.modeling_mode == 'bottom-up':
             self.base_model = OVR(self.model_dir)
+        else:
+            raise ValueError(f"Unknown modeling_mode={self.modeling_mode}")
         self.base_model.load()
 
     def predict(self, X_text=None, X_matrix=None, output_level="last", format='array', top_k=None):
