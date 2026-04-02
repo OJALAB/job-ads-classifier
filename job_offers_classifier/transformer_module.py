@@ -1,5 +1,4 @@
 from typing import List, Optional
-from pprint import pprint
 
 import numpy as np
 import torch
@@ -158,10 +157,21 @@ class TransformerClassifier(LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         return self._eval_step(batch, eval_name='val')
 
+    @staticmethod
+    def _format_metric_values(metrics):
+        formatted = {}
+        for key, value in metrics.items():
+            if isinstance(value, torch.Tensor):
+                value = value.detach().cpu()
+                formatted[key] = value.item() if value.numel() == 1 else value.tolist()
+            else:
+                formatted[key] = value
+        return formatted
+
     def on_validation_epoch_end(self):
         if self.hparams.verbose:
             print("Validation performance:")
-            pprint(self.val_metrics.compute())
+            print(self._format_metric_values(self.val_metrics.compute()))
         self.val_metrics.reset()
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
@@ -170,7 +180,7 @@ class TransformerClassifier(LightningModule):
     def on_test_epoch_end(self):
         if self.hparams.verbose:
             print("Test performance:")
-            pprint(self.test_metrics.compute())
+            print(self._format_metric_values(self.test_metrics.compute()))
         self.test_metrics.reset()
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
