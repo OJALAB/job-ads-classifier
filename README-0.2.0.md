@@ -70,6 +70,7 @@ pip install -r requirements-0.2.0.txt
 There is also a ready notebook in:
 
 - `colab/colab-smoke-test-0.2.0.ipynb`
+- `colab/colab-repod-pretrained-models-0.2.0.ipynb`
 
 ## CLI Usage
 
