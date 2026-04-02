@@ -8,10 +8,15 @@ from job_offers_classifier.classification_utils import *
 def get_num_labels(labels):
     if labels is None:
         return 0
-    if len(labels.shape) > 1:
-        return labels.shape[1]
+
+    labels_array = np.asarray(labels)
+    if labels_array.size == 0:
+        return 0
+
+    if len(labels_array.shape) > 1:
+        return labels_array.shape[1]
     else:
-        return max(labels) + 1
+        return int(labels_array.max()) + 1
 
 
 class TextDataset(Dataset):
