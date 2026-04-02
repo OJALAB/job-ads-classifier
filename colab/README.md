@@ -6,6 +6,8 @@ Recommended starting point:
 
 - `colab-smoke-test-0.2.0.ipynb`
 - `colab-repod-pretrained-models-0.2.0.ipynb`
+- `colab-existing-model-gpu-predict-0.2.0.ipynb`
+- `colab-short-transformer-training-gpu-0.2.0.ipynb`
 
 Both notebooks currently target repository tag `v0.2.1`.
 
@@ -24,3 +26,16 @@ The RepOD notebook covers:
 - direct download from RepOD via Dataverse API
 - validation of `linear-bottom-2024.zip`
 - validation of `transformer-bottom-base-2024.zip`
+
+The existing-model GPU notebook covers:
+
+- GPU runtime check on Colab
+- prediction with an already extracted model directory
+- preview of `predictions.txt` and `predictions.txt.map`
+
+The short GPU training notebook covers:
+
+- GPU runtime check on Colab
+- one short transformer training run on `tests/data`
+- prediction with the freshly trained model
+- quick inspection of saved model artifacts
