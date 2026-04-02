@@ -67,6 +67,10 @@ pip install -r requirements-0.2.0.txt
 !pip install -r requirements-colab-0.2.0.txt
 ```
 
+There is also a ready notebook in:
+
+- `colab/colab-smoke-test-0.2.0.ipynb`
+
 ## CLI Usage
 
 The repository keeps the `main.py` entry point and also exposes an installable console script:
