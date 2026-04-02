@@ -1,11 +1,13 @@
 # Colab
 
-This folder contains a minimal Colab notebook for testing release `0.2.0` on CPU or GPU-enabled Colab runtimes.
+This folder contains Colab notebooks for testing the maintained `0.2.x` line on CPU or GPU-enabled Colab runtimes.
 
 Recommended starting point:
 
 - `colab-smoke-test-0.2.0.ipynb`
 - `colab-repod-pretrained-models-0.2.0.ipynb`
+
+Both notebooks currently target repository tag `v0.2.1`.
 
 The notebook covers:
 
