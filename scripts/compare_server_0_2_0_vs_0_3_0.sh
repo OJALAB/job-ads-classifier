@@ -28,6 +28,7 @@ Required:
   --model-dir PATH         Extracted model directory to benchmark.
 
 Optional:
+  PYTHON_BIN=PATH          Python interpreter to use for all runs. Defaults to \`python\` from PATH.
   --classifier NAME        LinearJobOffersClassifier or TransformerJobOffersClassifier
   --input-file PATH        Input text file. Relative paths are resolved inside each checkout.
   --accelerator NAME       cpu by default
@@ -187,7 +188,6 @@ measure_predict() {
   for repeat in $(seq 1 "${REPEATS}"); do
     local pred_path="${OUT_DIR}/${label}.run${repeat}.pred.txt"
     local log_path="${OUT_DIR}/${label}.run${repeat}.log.txt"
-    local time_path="${OUT_DIR}/${label}.run${repeat}.time.txt"
     local cmd=(
       "${PYTHON_BIN}" "${worktree}/main.py"
       predict "${CLASSIFIER}"
@@ -205,8 +205,27 @@ measure_predict() {
     fi
 
     echo "[RUN] ${label} repeat ${repeat}: ${cmd[*]}" >&2
-    /usr/bin/time -p -o "${time_path}" "${cmd[@]}" > "${log_path}" 2>&1
-    real_seconds="$(awk '/^real / {print $2}' "${time_path}")"
+    if ! real_seconds="$(
+      "${PYTHON_BIN}" - "${log_path}" "${cmd[@]}" <<'PY'
+import subprocess
+import sys
+import time
+
+log_path = sys.argv[1]
+cmd = sys.argv[2:]
+
+started = time.perf_counter()
+with open(log_path, "w", encoding="utf-8") as log_handle:
+    completed = subprocess.run(cmd, stdout=log_handle, stderr=subprocess.STDOUT)
+elapsed = time.perf_counter() - started
+
+print(f"{elapsed:.6f}")
+sys.exit(completed.returncode)
+PY
+    )"; then
+      echo "[ERROR] Command failed for ${label} repeat ${repeat}. See ${log_path}" >&2
+      return 1
+    fi
     printf '%s\t%s\n' "${repeat}" "${real_seconds}" >> "${times_path}"
     last_pred="${pred_path}"
   done
@@ -221,6 +240,7 @@ echo "[INFO] Output directory: ${OUT_DIR}"
 echo "[INFO] Old ref: ${REF_OLD}"
 echo "[INFO] New ref: ${REF_NEW}"
 echo "[INFO] Classifier: ${CLASSIFIER}"
+echo "[INFO] Python bin: ${PYTHON_BIN}"
 echo "[INFO] Model dir: ${MODEL_DIR}"
 echo "[INFO] Input file: ${INPUT_FILE}"
 
@@ -249,7 +269,10 @@ def read_times(path):
     rows = []
     with open(path, "r", encoding="utf-8") as handle:
         for line in handle:
-            repeat, seconds = line.strip().split("\t")
+            line = line.strip()
+            if not line:
+                continue
+            repeat, seconds = line.split("\t")
             rows.append(float(seconds))
     return rows
 
