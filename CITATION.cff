@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this repository, please cite the article below."
 title: "Hierarchical Job Ads Classifier"
-version: "0.2.0"
-date-released: 2026-04-02
+version: "0.3.0"
+date-released: 2026-04-03
 license: "MIT"
 repository-code: "https://github.com/OJALAB/job-ads-classifier"
 authors:

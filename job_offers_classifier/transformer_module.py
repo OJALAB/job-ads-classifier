@@ -85,6 +85,8 @@ class TransformerClassifier(LightningModule):
         hidden_dropout: float = 0.0,
         eval_top_k: int = 10,
         freeze_transformer: bool = False,
+        gradient_checkpointing: bool = False,
+        pooling: str = "cls",
         verbose: bool = True,
         **kwargs,
     ):
@@ -105,6 +107,11 @@ class TransformerClassifier(LightningModule):
             finetuning_task=None
         )
         self.transformer = AutoModel.from_pretrained(model_name_or_path, config=self.config)
+        if gradient_checkpointing and hasattr(self.transformer, "gradient_checkpointing_enable"):
+            self.transformer.gradient_checkpointing_enable()
+        if freeze_transformer:
+            for parameter in self.transformer.parameters():
+                parameter.requires_grad = False
         self.output = FullyConnectedOutput(self.config.hidden_size, output_size, layer_units=(), hidden_dropout=hidden_dropout, output_nonlin=nn.Softmax(dim=1), criterion=nn.CrossEntropyLoss(reduction='none'), labels_groups=labels_groups, labels_groups_mapping=labels_groups_mapping) 
         
         metric_dict = {
@@ -118,9 +125,17 @@ class TransformerClassifier(LightningModule):
         self.val_metrics = MetricCollection(metric_dict, prefix="val_")
         self.test_metrics = MetricCollection(metric_dict, prefix="test_")
 
+    def _pool_hidden_state(self, hidden_state, attention_mask):
+        if self.hparams.pooling == "mean":
+            attention_mask = attention_mask.unsqueeze(-1).type_as(hidden_state)
+            masked_hidden = hidden_state * attention_mask
+            token_counts = attention_mask.sum(dim=1).clamp_min(1)
+            return masked_hidden.sum(dim=1) / token_counts
+        return hidden_state[:, 0, :]
+
     def forward(self, batch, labels=None):
         transformer_output = self.transformer(batch['input_ids'], attention_mask=batch['attention_mask'])
-        transformer_output = transformer_output.last_hidden_state[:, 0, :]
+        transformer_output = self._pool_hidden_state(transformer_output.last_hidden_state, batch['attention_mask'])
         if self.output is None:
             return transformer_output
         else:

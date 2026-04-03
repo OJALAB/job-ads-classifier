@@ -596,6 +596,9 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                  num_nodes=1,
                  threads=-1,
                  precision="16-mixed",
+                 pooling="cls",
+                 gradient_checkpointing=False,
+                 tokenization_mode="batched",
                  verbose=True):
         super().__init__(model_dir=model_dir, hierarchy=hierarchy, modeling_mode = modeling_mode, verbose=verbose)
 
@@ -618,6 +621,9 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         if self.threads <= 0:
             self.threads = os.cpu_count()
         self.precision = precision
+        self.pooling = pooling
+        self.gradient_checkpointing = gradient_checkpointing
+        self.tokenization_mode = tokenization_mode
         self.fit_single = False
 
         self.num_devices = self.devices
@@ -627,14 +633,15 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
 
     def _create_text_dataset(self, y, X, labels_groups=None):
         _, TextDataset, _, _, _ = _require_transformer_dependencies()
+        lazy_encode = self.tokenization_mode == "lazy"
         if y is not None and isinstance(y[0], list):
             return TextDataset(X, labels=y,
                     num_labels=self.last_level_labels_count,
-                    lazy_encode=True, labels_dense_vec=False, labels_groups=labels_groups)
+                    lazy_encode=lazy_encode, labels_dense_vec=False, labels_groups=labels_groups)
         else:
             return TextDataset(X, labels=y,
                             num_labels=self.last_level_labels_count,
-                            lazy_encode=True, labels_dense_vec=False)
+                            lazy_encode=lazy_encode, labels_dense_vec=False)
 
     def _setup_data_module(self, dataset):
         _, _, TransformerDataModule, _, _ = _require_transformer_dependencies()
@@ -654,10 +661,11 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
             self.transformer_model,
             train_batch_size=self.batch_size,
             eval_batch_size=self.batch_size,
+            predict_batch_size=self.batch_size,
             max_seq_length=self.max_sequence_length,
             num_workers=self.threads if self.num_devices < 2 else 0,
+            pin_memory=self.accelerator in {"gpu", "cuda"},
         )
-        data_module.setup()
         return data_module
 
     def _fit(self, y, X, y_val=None, X_val=None, output_size=None, labels_groups=None, labels_paths=None, labels_groups_mapping=None):
@@ -696,7 +704,9 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
             verbose=self.verbose, 
             labels_groups=labels_groups, 
             labels_paths=labels_paths, 
-            labels_groups_mapping=labels_groups_mapping
+            labels_groups_mapping=labels_groups_mapping,
+            pooling=self.pooling,
+            gradient_checkpointing=self.gradient_checkpointing,
         )
 
         trainer.fit(self.base_model, datamodule=data_module, ckpt_path=self.ckpt_path)
@@ -709,6 +719,9 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
             'transformer_model': self.transformer_model,
             'transformer_ckpt': self.transformer_ckpt_path,
             'modeling_mode': self.modeling_mode,
+            'pooling': self.pooling,
+            'gradient_checkpointing': self.gradient_checkpointing,
+            'tokenization_mode': self.tokenization_mode,
         })
 
         if self.modeling_mode in ["bottom-up", "bottom-up-flat", "top-down"]:
@@ -784,6 +797,9 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
         self.transformer_ckpt_path = transformer_arch['transformer_ckpt']
         self.ckpt_path = self._find_checkpoint_path()
         self.modeling_mode = transformer_arch.get('modeling_mode', self._infer_modeling_mode_from_checkpoint(torch))
+        self.pooling = transformer_arch.get('pooling', self.pooling)
+        self.gradient_checkpointing = transformer_arch.get('gradient_checkpointing', self.gradient_checkpointing)
+        self.tokenization_mode = transformer_arch.get('tokenization_mode', self.tokenization_mode)
 
         labels_groups = self.top_down_labels_groups if self.modeling_mode == 'top-down' else None
         labels_paths = self.top_down_labels_paths if self.modeling_mode == 'top-down' else None
@@ -797,7 +813,9 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
             verbose=self.verbose,
             labels_groups=labels_groups, 
             labels_paths=labels_paths, 
-            labels_groups_mapping=labels_groups_mapping
+            labels_groups_mapping=labels_groups_mapping,
+            pooling=self.pooling,
+            gradient_checkpointing=self.gradient_checkpointing,
         )
 
 
@@ -816,9 +834,10 @@ class TransformerJobOffersClassifier(BaseHierarchicalJobOffersClassifier):
                 "precision": self.precision,
                 "accelerator": self.accelerator,
                 "num_nodes": self.num_nodes,
+                "logger": False,
             },
         )
-        pred = trainer.predict(self.base_model, dataloaders=data_module.test_dataloader(), ckpt_path=self.ckpt_path)
+        pred = trainer.predict(self.base_model, datamodule=data_module, ckpt_path=self.ckpt_path)
         return np.array(torch.vstack(pred))
 
     def predict(self, X, output_level="last", format='array', top_k=None):

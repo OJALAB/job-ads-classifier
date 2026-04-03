@@ -1,4 +1,4 @@
-# Reference CPU image for release 0.2.0.
+# Reference CPU image for release 0.3.0.
 # For GPU containers, install the matching torch build for your CUDA runtime before the requirements step.
 FROM python:3.12-slim
 
@@ -19,4 +19,3 @@ RUN python -m pip install --upgrade pip \
 COPY . .
 
 CMD ["python", "main.py", "--help"]
-

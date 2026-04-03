@@ -47,17 +47,18 @@ class TextDataset(Dataset):
         # print(f"Initializing TextDataset with {self.labels.shape[0]} data points and {self.num_labels} labels, lazy_encode={lazy_encode}, labels_dense_vec={labels_dense_vec} ...")
 
     @staticmethod
-    def _prepare_encodings(encodings, idx):
-        return {key: val[idx] for key, val in encodings.items()}
+    def _prepare_encodings(encodings, idx=None):
+        if idx is None:
+            return {key: torch.as_tensor(val, dtype=torch.long) for key, val in encodings.items()}
+        return {key: torch.as_tensor(val[idx], dtype=torch.long) for key, val in encodings.items()}
 
     def _tokenize(self, text):
         return self.tokenizer(
             text,
             add_special_tokens=True,
             max_length=self.max_seq_length,
-            padding='max_length',
             truncation=True,
-            return_tensors='pt',
+            return_attention_mask=True,
         )
 
     def setup(self, tokenizer, max_seq_length):
@@ -65,7 +66,6 @@ class TextDataset(Dataset):
         self.max_seq_length = max_seq_length
 
         if not self.lazy_encode:
-            # print("Tokenizing dataset ...")
             self.encodings = self._tokenize(self.texts)
 
     def __len__(self):
@@ -78,7 +78,7 @@ class TextDataset(Dataset):
         if self.encodings is not None:
             item = TextDataset._prepare_encodings(self.encodings, idx)
         else:
-            item = TextDataset._prepare_encodings(self._tokenize([self.texts[idx]]), 0)
+            item = TextDataset._prepare_encodings(self._tokenize(self.texts[idx]))
 
         if self.labels_dense_vec:
             item['labels'] = csr_vec_to_dense_tensor(self.labels[idx])

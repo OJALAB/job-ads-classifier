@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "job-ads-classifier"
-version = "0.2.0"
+version = "0.3.0"
 description = "Hierarchical job ads classifier with linear and transformer backends."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -52,8 +52,7 @@ test = [
 ]
 
 [project.scripts]
-job-ads-classifier = "main:main"
+job-ads-classifier = "job_offers_classifier.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["job_offers_classifier*"]
-
