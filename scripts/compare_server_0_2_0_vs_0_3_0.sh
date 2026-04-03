@@ -206,7 +206,8 @@ measure_predict() {
 
     echo "[RUN] ${label} repeat ${repeat}: ${cmd[*]}" >&2
     /usr/bin/time -p -o "${time_path}" "${cmd[@]}" > "${log_path}" 2>&1
-    awk '/^real / {print '"${repeat}"'\t"$2}' "${time_path}" >> "${times_path}"
+    real_seconds="$(awk '/^real / {print $2}' "${time_path}")"
+    printf '%s\t%s\n' "${repeat}" "${real_seconds}" >> "${times_path}"
     last_pred="${pred_path}"
   done
 
@@ -255,6 +256,8 @@ def read_times(path):
 
 def summarize_times(path):
     runs = read_times(path)
+    if not runs:
+        raise RuntimeError(f"No timing rows were collected from {path}")
     return {
         "runs": runs,
         "avg_seconds": sum(runs) / len(runs),
