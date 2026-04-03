@@ -417,6 +417,21 @@ The `colab/` folder contains notebooks for the maintained release line:
 
 The GPU-specific notebooks currently track `main` so they include the latest Colab fixes.
 
+For a one-cell Colab benchmark from install to GPU timing, you can also run:
+
+```bash
+bash scripts/run_colab_transformer_benchmark_0_3_0.sh
+```
+
+This script:
+
+- clones the repository
+- installs the `0.3.0` Colab dependencies
+- downloads `transformer-bottom-base-2024.zip` from RepOD
+- extracts the model
+- builds a larger benchmark input file from `tests/data/x_test.txt`
+- runs `lazy` vs `batched` benchmark on GPU
+
 ## Versioned release docs
 
 Historical and versioned READMEs remain in the repository:
