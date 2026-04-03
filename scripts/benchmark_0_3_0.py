@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import platform
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+
+PYTHON_BIN = os.environ.get("PYTHON_BIN", sys.executable)
 
 
 def _load_texts(path: Path):
@@ -24,7 +28,7 @@ def _runtime_metadata():
     return {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
-        "executable": sys.executable,
+        "executable": PYTHON_BIN,
     }
 
 
@@ -211,7 +215,7 @@ def run_existing_model_predict(
     tokenization_mode=None,
 ):
     command = [
-        sys.executable,
+        PYTHON_BIN,
         "main.py",
         "predict",
         classifier,
