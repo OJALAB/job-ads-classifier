@@ -7,6 +7,7 @@
 - added optional transformer gradient checkpointing
 - reduced transformer prediction overhead by routing prediction through the Lightning datamodule path and disabling prediction logging
 - added benchmark helpers for comparing the legacy lazy path with the new batched path
+- benchmarked the new path and documented that the largest gains appear in the isolated transformer data pipeline, while end-to-end predict on existing RepOD models stayed roughly flat in steady state
 - refreshed the main README so the package can be installed and used directly with `pip` or `uv`
 - moved the console entrypoint into the package so standard `pip install .` and wheel installs expose a working `job-ads-classifier` command
 - documented the public RepOD pretrained models and the recommended compatibility-validation flows

@@ -269,6 +269,12 @@ Current measured offline benchmark result for `0.3.0`:
 - repeated local runs landed between `5.33x` and `5.89x`
 - representative measured speedup: about `5.4x`
 
+Measured end-to-end results on an existing public RepOD transformer were more conservative:
+
+- CPU server predict with `transformer-bottom-base-2024`: `lazy` and `batched` were effectively tied, with no meaningful steady-state speedup
+- Colab GPU predict on a larger replicated input: `batched` looked better on the full average because of a very slow first `lazy` run, but steady-state runs were again very close
+- practical conclusion: `0.3.0` gives a clearly faster transformer data path in isolation, while full inference on an existing HerBERT-based model remains dominated by model execution rather than tokenization
+
 ## Public pretrained models on RepOD
 
 Public pretrained classifiers are available in RepOD:

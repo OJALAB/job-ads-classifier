@@ -51,6 +51,14 @@ python scripts/benchmark_0_3_0.py existing-model-compare \
   --repeats 3
 ```
 
+### Colab GPU benchmark on an extracted RepOD model
+
+This release also includes a Colab runner that downloads `transformer-bottom-base-2024.zip`, expands the test input, and compares `lazy` vs `batched` on GPU:
+
+```bash
+bash scripts/run_colab_transformer_benchmark_0_3_0.sh
+```
+
 ## Notes
 
 - Measured local result for `0.3.0` on `2026-04-03`:
@@ -81,4 +89,17 @@ python scripts/benchmark_0_3_0.py existing-model-compare \
 - The synthetic benchmark isolates the tokenizer plus dataloader path and is the quickest way to verify the `0.3.0` speedup.
 - A toy fake tokenizer can understate or even hide the benefit because its per-call tokenization cost is unrealistically low. The `local-fast` mode is the recommended offline benchmark.
 - The RepOD benchmark measures the real `predict` path on an extracted existing model.
+- Existing-model benchmark on the CPU server with `transformer-bottom-base-2024`:
+  - `lazy` average: `13.2795s`
+  - `batched` average: `13.3667s`
+  - measured difference: about `0.66%`, effectively no meaningful steady-state speedup in end-to-end CPU predict
+- Existing-model benchmark on Colab GPU with the same public RepOD model and an expanded input file:
+  - `lazy` runs: `46.63s`, `19.16s`, `17.74s`
+  - `batched` runs: `19.01s`, `17.65s`, `18.53s`
+  - full average favored `batched` by about `1.51x`, but the result was dominated by a large first-run `lazy` outlier
+  - after the first-run warmup effect, both modes were effectively similar in steady state at about `18s`
+- Practical release interpretation:
+  - `0.3.0` clearly improves the transformer tokenization and collation path in isolation
+  - for full prediction on an already trained RepOD transformer, CPU and GPU end-to-end latency remained dominated by model execution rather than tokenization, so no large steady-state predict speedup was observed
+  - the main practical benefits of `0.3.0` are the faster internal data path, packaging fixes, compatibility improvements, and better infrastructure for future optimization work
 - Linear-model support is kept stable in `0.3.0`; the main claimed runtime improvement in this release targets the transformer path.
